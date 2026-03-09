@@ -4,7 +4,7 @@ import os
 
 /// Represents a single Logitech HID++ 2.0 device connected through a transport.
 @Observable
-final class LogiDevice: Identifiable, @unchecked Sendable {
+class LogiDevice: Identifiable, @unchecked Sendable {
 
     // MARK: - Identity
 

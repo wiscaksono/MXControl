@@ -34,8 +34,16 @@ private struct ResponseWaiter: Sendable {
 
 /// HID++ transport over USB via IOKit HIDManager.
 ///
-/// Matches Logitech devices (vendor 0x046D), filters for HID++ control interface
-/// (usage page 0xFF00, usage 0x0001), and provides async/await send/receive.
+/// Architecture:
+///   Bolt/Unifying receivers present multiple HID interfaces on USB:
+///     - UsagePage=0x01, Usage=0x02  (Mouse HID)    → managed by macOS, skip
+///     - UsagePage=0x01, Usage=0x06  (Keyboard HID) → managed by macOS, skip
+///     - UsagePage=0xFF00, Usage=0x01 (HID++ control)→ OUR transport
+///
+///   We use the IOHIDManager-level input report callback to receive HID++ reports
+///   from ANY matched device. For sending, we open and retain the HID++ control
+///   interface. If that interface is removed (IOKit lifecycle), we re-acquire
+///   from the next matching callback.
 final class USBTransport: HIDTransport, @unchecked Sendable {
 
     // MARK: - Constants
@@ -50,8 +58,10 @@ final class USBTransport: HIDTransport, @unchecked Sendable {
     // MARK: - State
 
     private var manager: IOHIDManager?
-    private var hidDevice: IOHIDDevice?
-    private var reportBuffer = [UInt8](repeating: 0, count: 64)
+    /// The HID++ control interface used for sending reports.
+    private var sendDevice: IOHIDDevice?
+    /// Unique ID of the send device (to identify it across callbacks).
+    private var sendDeviceUID: String?
 
     /// Queue protecting mutable state (waiters, device ref).
     private let stateQueue = DispatchQueue(label: "com.mxcontrol.usbtransport.state")
@@ -59,16 +69,31 @@ final class USBTransport: HIDTransport, @unchecked Sendable {
     /// Pending response waiters.
     private var waiters: [ResponseWaiter] = []
 
-    /// Callback for when a HID++ device is matched (discovered).
+    /// Callback for when a Logitech receiver is first discovered.
+    /// Only fires ONCE per receiver connection (deduplicated by uid).
     var onDeviceMatched: (@Sendable (IOHIDDevice) -> Void)?
 
-    /// Callback for when a HID++ device is removed.
+    /// Callback for when the HID++ send device is physically removed.
     var onDeviceRemoved: (@Sendable () -> Void)?
+
+    /// Callback for unsolicited HID++ notifications (diverted button events, rawXY, battery events, etc.).
+    /// Called when an incoming packet does NOT match any pending waiter.
+    /// Parameters: (deviceIndex, featureIndex, functionId, params)
+    var notificationHandler: (@Sendable (UInt8, UInt8, UInt8, [UInt8]) -> Void)?
 
     /// Whether we have a device open and ready.
     var isOpen: Bool {
-        stateQueue.sync { hidDevice != nil }
+        stateQueue.sync { sendDevice != nil }
     }
+
+    /// Track whether onDeviceMatched has already fired (to fire only once).
+    private var hasNotifiedDeviceMatched = false
+
+    /// Debounce timer for device removal — IOKit re-enumerates devices periodically,
+    /// causing a remove+add cycle for the same device. We delay the removal callback
+    /// to avoid tearing down everything on a transient re-enumeration.
+    private var removalDebounceTask: DispatchWorkItem?
+    private let removalDebounceDelay: TimeInterval = 2.0
 
     // MARK: - HIDTransport Protocol
 
@@ -76,13 +101,13 @@ final class USBTransport: HIDTransport, @unchecked Sendable {
         let manager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
         self.manager = manager
 
-        // Match Logitech vendor
+        // Match Logitech vendor only
         let matching: [String: Any] = [
             kIOHIDVendorIDKey as String: Self.logitechVendorId,
         ]
         IOHIDManagerSetDeviceMatching(manager, matching as CFDictionary)
 
-        // Register callbacks
+        // Register device lifecycle callbacks
         let ctx = Unmanaged.passUnretained(self).toOpaque()
 
         IOHIDManagerRegisterDeviceMatchingCallback(manager, { ctx, _, _, device in
@@ -96,6 +121,18 @@ final class USBTransport: HIDTransport, @unchecked Sendable {
             let transport = Unmanaged<USBTransport>.fromOpaque(ctx).takeUnretainedValue()
             transport.handleDeviceRemoved(device)
         }, ctx)
+
+        // Manager-level input report callback — receives reports from ALL matched & opened devices.
+        // This is robust against individual device add/remove cycles.
+        IOHIDManagerRegisterInputReportCallback(
+            manager,
+            { ctx, _, sender, _, reportId, reportPtr, reportLength in
+                guard let ctx else { return }
+                let transport = Unmanaged<USBTransport>.fromOpaque(ctx).takeUnretainedValue()
+                transport.handleInputReport(reportId: reportId, report: reportPtr, length: reportLength)
+            },
+            ctx
+        )
 
         IOHIDManagerScheduleWithRunLoop(
             manager,
@@ -111,9 +148,10 @@ final class USBTransport: HIDTransport, @unchecked Sendable {
 
     func close() {
         stateQueue.sync {
-            if let device = hidDevice {
+            if let device = sendDevice {
                 IOHIDDeviceClose(device, IOOptionBits(kIOHIDOptionsTypeNone))
-                hidDevice = nil
+                sendDevice = nil
+                sendDeviceUID = nil
             }
         }
 
@@ -144,7 +182,7 @@ final class USBTransport: HIDTransport, @unchecked Sendable {
         params: [UInt8]
     ) async throws -> HIDPPResponse {
         let device = try stateQueue.sync { () throws -> IOHIDDevice in
-            guard let device = hidDevice else {
+            guard let device = sendDevice else {
                 throw HIDPPError.transportNotOpen
             }
             return device
@@ -213,55 +251,94 @@ final class USBTransport: HIDTransport, @unchecked Sendable {
         // Filter for HID++ control interface
         guard isHIDPPInterface(device) else { return }
 
-        stateQueue.sync {
-            self.hidDevice = device
-        }
+        let pid = IOHIDDeviceGetProperty(device, kIOHIDProductIDKey as CFString) as? Int ?? 0
+        let name = IOHIDDeviceGetProperty(device, kIOHIDProductKey as CFString) as? String ?? "Unknown"
+        let uid = deviceUID(device)
 
-        // Open device
-        let result = IOHIDDeviceOpen(device, IOOptionBits(kIOHIDOptionsTypeNone))
-        guard result == kIOReturnSuccess else {
-            logger.error("[USBTransport] Failed to open device: \(result)")
+        let (haveSendDevice, currentUID) = stateQueue.sync { (sendDevice != nil, sendDeviceUID) }
+        debugLog("[USBTransport] HID++ match check: haveSendDevice=\(haveSendDevice) currentUID=\(currentUID ?? "nil") newUID=\(uid)")
+
+        // Case 1: Already have a working send device — skip
+        if haveSendDevice {
+            debugLog("[USBTransport] Ignoring additional HID++ interface: \(name) uid=\(uid)")
             return
         }
 
-        // Register input report callback
-        let ctx = Unmanaged.passUnretained(self).toOpaque()
-        IOHIDDeviceRegisterInputReportCallback(
-            device,
-            &reportBuffer,
-            reportBuffer.count,
-            { ctx, _, _, _, reportId, reportPtr, reportLength in
-                guard let ctx else { return }
-                let transport = Unmanaged<USBTransport>.fromOpaque(ctx).takeUnretainedValue()
-                transport.handleInputReport(reportId: reportId, report: reportPtr, length: reportLength)
-            },
-            ctx
-        )
+        // Case 2: Re-enumeration — same UID coming back after removal debounce started
+        let isReEnumeration = (currentUID == uid)
+        if isReEnumeration {
+            // Cancel the debounce timer — device came back, not a real removal
+            removalDebounceTask?.cancel()
+            removalDebounceTask = nil
+            debugLog("[USBTransport] Re-enumeration detected for uid=\(uid) — re-acquiring sendDevice silently")
+        }
 
-        let pid = IOHIDDeviceGetProperty(device, kIOHIDProductIDKey as CFString) as? Int ?? 0
-        let name = IOHIDDeviceGetProperty(device, kIOHIDProductKey as CFString) as? String ?? "Unknown"
+        // Open device for sending
+        let result = IOHIDDeviceOpen(device, IOOptionBits(kIOHIDOptionsTypeNone))
+        guard result == kIOReturnSuccess else {
+            debugLog("[USBTransport] Failed to open HID++ device: \(String(format: "0x%08X", result))")
+            return
+        }
+
+        stateQueue.sync {
+            self.sendDevice = device
+            self.sendDeviceUID = uid
+        }
+
+        debugLog("[USBTransport] Device matched: \(name) (PID: \(String(format: "0x%04X", pid))) uid=\(uid) reEnum=\(isReEnumeration)")
         logger.info("[USBTransport] Device matched: \(name) (PID: \(String(format: "0x%04X", pid)))")
 
-        onDeviceMatched?(device)
+        // Fire onDeviceMatched only ONCE per connection cycle.
+        // Re-enumeration (same UID) does NOT fire the callback — devices are still valid.
+        if !hasNotifiedDeviceMatched {
+            hasNotifiedDeviceMatched = true
+            onDeviceMatched?(device)
+        }
     }
 
     private func handleDeviceRemoved(_ device: IOHIDDevice) {
+        let uid = deviceUID(device)
+        let isHIDPP = isHIDPPInterface(device)
+        let (isOurSendDevice, currentUID) = stateQueue.sync { (sendDeviceUID == uid && sendDevice != nil, sendDeviceUID ?? "nil") }
+
+        debugLog("[USBTransport] Device removed: uid=\(uid) isHIDPP=\(isHIDPP) isOurs=\(isOurSendDevice) currentUID=\(currentUID)")
+
+        guard isOurSendDevice else { return }
+
+        // Clear the send device immediately so we don't try to use a stale reference
         stateQueue.sync {
-            if hidDevice === device {
-                hidDevice = nil
-            }
+            sendDevice = nil
+            // Keep sendDeviceUID so handleDeviceMatched can detect re-enumeration
         }
 
-        logger.info("[USBTransport] Device removed")
-        onDeviceRemoved?()
+        // Cancel any pending debounce
+        removalDebounceTask?.cancel()
 
-        // Cancel all pending waiters
+        // Cancel all pending waiters — they can't succeed without a send device
         stateQueue.sync {
             for waiter in waiters {
                 waiter.continuation.resume(throwing: HIDPPError.deviceNotFound)
             }
             waiters.removeAll()
         }
+
+        // Debounce: IOKit re-enumerates devices periodically (~10-30s), causing
+        // remove+add cycles for the same physical device. We delay the "real" removal
+        // callback to avoid tearing down the entire device tree on transient events.
+        // If handleDeviceMatched fires within the debounce window, it will cancel this
+        // and silently re-acquire sendDevice.
+        debugLog("[USBTransport] Send device removed — debouncing \(removalDebounceDelay)s before notifying")
+        let debounceItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            debugLog("[USBTransport] Debounce expired — device truly removed, notifying")
+            self.stateQueue.sync {
+                self.sendDeviceUID = nil
+            }
+            self.hasNotifiedDeviceMatched = false
+            self.onDeviceRemoved?()
+        }
+        removalDebounceTask = debounceItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + removalDebounceDelay, execute: debounceItem)
     }
 
     private func handleInputReport(reportId: UInt32, report: UnsafeMutablePointer<UInt8>, length: CFIndex) {
@@ -282,6 +359,9 @@ final class USBTransport: HIDTransport, @unchecked Sendable {
                 packet[i + 1] = report[i]
             }
         }
+
+        // Filter: only process HID++ packets (report IDs 0x10, 0x11, 0x20)
+        guard packet.count >= 3, let _ = ReportID(rawValue: packet[0]) else { return }
 
         let hex = packet.prefix(min(packet.count, 20)).map { String(format: "%02X", $0) }.joined(separator: " ")
         debugLog("[USBTransport] IN  (\(hex))")
@@ -315,8 +395,7 @@ final class USBTransport: HIDTransport, @unchecked Sendable {
                 }
             }
 
-            // Normal response matching — match by deviceIndex + featureIndex + functionId only
-            // (softwareId may differ if Logi Options+ agent is also communicating)
+            // Normal response matching — match by deviceIndex + featureIndex + functionId + softwareId
             if let idx = waiters.firstIndex(where: {
                 $0.deviceIndex == response.deviceIndex
                     && $0.featureIndex == response.featureIndex
@@ -327,7 +406,18 @@ final class USBTransport: HIDTransport, @unchecked Sendable {
                 debugLog("[USBTransport] MATCH -> waiter dev=\(waiter.deviceIndex)")
                 waiter.continuation.resume(returning: response)
             } else {
-                debugLog("[USBTransport] NO MATCH (unsolicited/other sw)")
+                // Forward unmatched packets to notification handler
+                // These include: diverted button events, rawXY, battery status changes, etc.
+                let handler = self.notificationHandler
+                if handler != nil {
+                    let devIdx = response.deviceIndex
+                    let featIdx = response.featureIndex
+                    let funcId = response.functionId
+                    let params = response.params
+                    DispatchQueue.global().async {
+                        handler?(devIdx, featIdx, funcId, params)
+                    }
+                }
             }
         }
     }
@@ -342,6 +432,14 @@ final class USBTransport: HIDTransport, @unchecked Sendable {
             return false
         }
         return usagePage == Self.hidppUsagePage && usage == Self.hidppUsage
+    }
+
+    /// Generate a unique identifier for a device (for dedup).
+    private func deviceUID(_ device: IOHIDDevice) -> String {
+        let locationID = IOHIDDeviceGetProperty(device, kIOHIDLocationIDKey as CFString) as? Int ?? 0
+        let pid = IOHIDDeviceGetProperty(device, kIOHIDProductIDKey as CFString) as? Int ?? 0
+        let usage = IOHIDDeviceGetProperty(device, kIOHIDPrimaryUsageKey as CFString) as? Int ?? 0
+        return "\(pid)-\(locationID)-\(usage)"
     }
 
     /// Get the product ID from a matched device.

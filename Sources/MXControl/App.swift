@@ -9,113 +9,257 @@ struct MXControlApp: App {
     @State private var deviceManager = DeviceManager()
 
     var body: some Scene {
-        MenuBarExtra("MXControl", systemImage: "computermouse.fill") {
-            MenuBarView(deviceManager: deviceManager)
+        MenuBarExtra {
+            MenuBarView()
+                .environment(deviceManager)
+        } label: {
+            Image(systemName: "computermouse.fill")
         }
+        .menuBarExtraStyle(.window)
     }
 }
 
 // MARK: - Menu Bar View
 
 struct MenuBarView: View {
-    @Bindable var deviceManager: DeviceManager
+    @Environment(DeviceManager.self) private var deviceManager
+    @State private var selectedDevice: LogiDevice?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // Header
-            HStack {
-                Text("MXControl")
-                    .font(.headline)
-                Spacer()
-                Text("v0.1.0")
-                    .font(.caption)
+        VStack(spacing: 0) {
+            navHeader
+            Divider()
+            navContent
+            Divider()
+            navFooter
+        }
+        .frame(width: 300)
+        .animation(.easeInOut(duration: 0.15), value: selectedDevice?.id)
+    }
+
+    // MARK: - Header
+
+    @ViewBuilder
+    private var navHeader: some View {
+        if let device = selectedDevice {
+            // Detail mode: back button + device name
+            HStack(spacing: 6) {
+                Button {
+                    selectedDevice = nil
+                } label: {
+                    HStack(spacing: 3) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 11, weight: .semibold))
+                        Text("Back")
+                            .font(.system(size: 12))
+                    }
                     .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+
+                Spacer()
+
+                Image(systemName: iconForDevice(device))
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+
+                Text(device.name)
+                    .font(.system(size: 13, weight: .medium))
+                    .lineLimit(1)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
-
-            Divider()
-
-            // Status
-            HStack {
-                Circle()
-                    .fill(deviceManager.isScanning ? .orange : (deviceManager.devices.isEmpty ? .red : .green))
-                    .frame(width: 8, height: 8)
-                Text(deviceManager.statusMessage)
-                    .font(.caption)
+        } else {
+            // List mode: app title
+            HStack(spacing: 6) {
+                Image(systemName: "computermouse.fill")
+                    .font(.system(size: 13))
                     .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
 
-            Divider()
+                Text("MXControl")
+                    .font(.system(size: 13, weight: .semibold))
 
-            // Device list
-            if deviceManager.devices.isEmpty {
-                Text("No devices found")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-            } else {
-                ForEach(deviceManager.devices) { device in
-                    DeviceRow(device: device)
+                Spacer()
+
+                if deviceManager.isScanning {
+                    ProgressView()
+                        .controlSize(.small)
+                        .scaleEffect(0.7)
                 }
             }
-
-            Divider()
-
-            // Actions
-            Button("Rescan") {
-                deviceManager.stopDiscovery()
-                deviceManager.devices.removeAll()
-                deviceManager.startDiscovery()
-            }
             .padding(.horizontal, 12)
-            .padding(.vertical, 4)
+            .padding(.vertical, 8)
+        }
+    }
 
-            Button("Quit") {
+    // MARK: - Content
+
+    @ViewBuilder
+    private var navContent: some View {
+        if let device = selectedDevice {
+            DeviceDetailView(device: device)
+        } else {
+            deviceListContent
+        }
+    }
+
+    // MARK: - Device List
+
+    @ViewBuilder
+    private var deviceListContent: some View {
+        if deviceManager.devices.isEmpty {
+            // Empty state
+            VStack(spacing: 8) {
+                Image(systemName: "antenna.radiowaves.left.and.right.slash")
+                    .font(.system(size: 26))
+                    .foregroundStyle(.secondary)
+
+                Text("No Devices Found")
+                    .font(.system(size: 13, weight: .medium))
+
+                Text("Make sure your Logi Bolt receiver is connected via USB")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+                    .multilineTextAlignment(.center)
+
+                Button {
+                    deviceManager.stopDiscovery()
+                    deviceManager.devices.removeAll()
+                    deviceManager.startDiscovery()
+                } label: {
+                    Text("Scan for Devices")
+                        .font(.system(size: 11))
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .padding(.top, 4)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 20)
+        } else {
+            VStack(spacing: 0) {
+                ForEach(Array(deviceManager.devices.enumerated()), id: \.element.id) { index, device in
+                    if index > 0 {
+                        Divider()
+                            .padding(.horizontal, 12)
+                    }
+                    DeviceRowView(device: device) {
+                        selectedDevice = device
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Footer
+
+    private var navFooter: some View {
+        HStack(spacing: 8) {
+            Button {
+                if let device = selectedDevice {
+                    // Refresh selected device battery
+                    Task {
+                        if let mouse = device as? MouseDevice {
+                            await mouse.refreshBattery()
+                        } else if let keyboard = device as? KeyboardDevice {
+                            await keyboard.refreshBattery()
+                        }
+                    }
+                } else {
+                    // Rescan all
+                    deviceManager.stopDiscovery()
+                    deviceManager.devices.removeAll()
+                    selectedDevice = nil
+                    deviceManager.startDiscovery()
+                }
+            } label: {
+                Label(
+                    selectedDevice != nil ? "Refresh" : "Rescan",
+                    systemImage: "arrow.clockwise"
+                )
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+
+            Spacer()
+
+            Button {
                 deviceManager.stopDiscovery()
                 NSApplication.shared.terminate(nil)
+            } label: {
+                Label("Quit", systemImage: "power")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
             }
+            .buttonStyle(.plain)
             .keyboardShortcut("q")
-            .padding(.horizontal, 12)
-            .padding(.vertical, 4)
         }
-        .frame(width: 280)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+    }
+
+    // MARK: - Helpers
+
+    private func iconForDevice(_ device: LogiDevice) -> String {
+        switch device.deviceType {
+        case .mouse: return "computermouse.fill"
+        case .keyboard: return "keyboard.fill"
+        default: return "questionmark.circle"
+        }
     }
 }
 
-// MARK: - Device Row
+// MARK: - Device Row View
 
-struct DeviceRow: View {
+struct DeviceRowView: View {
     let device: LogiDevice
+    var onTap: () -> Void
+
+    @State private var isHovered = false
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: device.deviceType == .mouse ? "computermouse.fill" : "keyboard.fill")
+            Image(systemName: deviceIcon)
+                .font(.system(size: 15))
                 .foregroundStyle(.secondary)
-                .frame(width: 20)
+                .frame(width: 22)
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(device.name)
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-
-                HStack(spacing: 4) {
-                    Text(device.deviceKind.description)
-                    Text("\u{00B7}")
-                    Text("HID++ \(device.protocolMajor).\(device.protocolMinor)")
-                    Text("\u{00B7}")
-                    Text("\(device.features.count) features")
-                }
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-            }
+            Text(device.name)
+                .font(.system(size: 13, weight: .medium))
+                .lineLimit(1)
 
             Spacer()
+
+            // Battery indicator
+            if let mouse = device as? MouseDevice {
+                BatteryIndicator(level: mouse.batteryLevel, isCharging: mouse.batteryCharging)
+            } else if let keyboard = device as? KeyboardDevice {
+                BatteryIndicator(level: keyboard.batteryLevel, isCharging: keyboard.batteryCharging)
+            }
+
+            Image(systemName: "chevron.right")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(.quaternary)
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 6)
+        .padding(.vertical, 8)
+        .contentShape(Rectangle())
+        .background(
+            isHovered
+                ? Color(nsColor: .selectedContentBackgroundColor).opacity(0.12)
+                : .clear
+        )
+        .onHover { isHovered = $0 }
+        .onTapGesture { onTap() }
+    }
+
+    private var deviceIcon: String {
+        switch device.deviceType {
+        case .mouse: return "computermouse.fill"
+        case .keyboard: return "keyboard.fill"
+        default: return "questionmark.circle"
+        }
     }
 }

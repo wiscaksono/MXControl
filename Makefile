@@ -23,6 +23,8 @@ bundle: build
 	@mkdir -p $(APP_BUNDLE)/Contents/Resources
 	@cp $(BINARY) $(APP_BUNDLE)/Contents/MacOS/$(APP_NAME)
 	@cp Sources/Info.plist $(APP_BUNDLE)/Contents/Info.plist
+	@cp Sources/Resources/logi-logo.png $(APP_BUNDLE)/Contents/Resources/logi-logo.png
+	@cp Sources/Resources/AppIcon.icns $(APP_BUNDLE)/Contents/Resources/AppIcon.icns
 	@# Generate PkgInfo
 	@echo "APPL????" > $(APP_BUNDLE)/Contents/PkgInfo
 	@# Codesign (override SIGNING_IDENTITY for dev cert, defaults to ad-hoc)

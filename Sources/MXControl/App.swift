@@ -1,3 +1,4 @@
+import AppKit
 import os
 import SwiftUI
 
@@ -8,12 +9,27 @@ let logger = Logger(subsystem: "com.mxcontrol.app", category: "general")
 struct MXControlApp: App {
     @State private var deviceManager = DeviceManager()
 
+    /// Menu bar icon loaded from bundle Resources as a template image.
+    private static let menuBarIcon: NSImage = {
+        let img: NSImage
+        if let url = Bundle.main.url(forResource: "logi-logo", withExtension: "png"),
+           let loaded = NSImage(contentsOf: url) {
+            img = loaded
+        } else {
+            // Fallback to SF Symbol if resource not found
+            img = NSImage(systemSymbolName: "computermouse.fill", accessibilityDescription: "MXControl")!
+        }
+        img.isTemplate = true
+        img.size = NSSize(width: 18, height: 18)
+        return img
+    }()
+
     var body: some Scene {
         MenuBarExtra {
             MenuBarView()
                 .environment(deviceManager)
         } label: {
-            Image(systemName: "computermouse.fill")
+            Image(nsImage: Self.menuBarIcon)
         }
         .menuBarExtraStyle(.window)
     }

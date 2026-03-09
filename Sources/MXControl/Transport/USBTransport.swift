@@ -188,8 +188,29 @@ final class USBTransport: HIDTransport, @unchecked Sendable {
         )
 
         let result = IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeNone))
-        guard result == kIOReturnSuccess else {
-            throw HIDPPError.transportError("Failed to open IOHIDManager: \(result)")
+        if result != kIOReturnSuccess {
+            // kIOReturnExclusiveAccess (0xE00002E2) — common on macOS 15+ for BLE HID devices.
+            // The manager callbacks (matching, removal, input reports) still fire even when
+            // IOHIDManagerOpen fails with this code, so we can continue.
+            if result == IOReturn(bitPattern: 0xE000_02E2) {
+                debugLog("[USBTransport] IOHIDManagerOpen returned kIOReturnExclusiveAccess — continuing with callbacks only")
+                return
+            }
+
+            // Fatal errors — cleanup and throw
+            IOHIDManagerUnscheduleFromRunLoop(
+                manager,
+                CFRunLoopGetMain(),
+                CFRunLoopMode.defaultMode.rawValue
+            )
+            IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone))
+            self.manager = nil
+
+            // kIOReturnNotPermitted = 0xE00002C1 — TCC denied (Input Monitoring not granted)
+            if result == IOReturn(bitPattern: 0xE000_02C1) {
+                throw HIDPPError.tccDenied
+            }
+            throw HIDPPError.transportError(String(format: "IOHIDManagerOpen failed: 0x%08X", result))
         }
     }
 
@@ -227,6 +248,23 @@ final class USBTransport: HIDTransport, @unchecked Sendable {
         }
         removalDebounceTasks.removeAll()
         notifiedDeviceUIDs.removeAll()
+    }
+
+    /// Reset BLE device notification state so that `onBLEDeviceMatched` fires again
+    /// on the next IOKit re-enumeration. Call this when USB is unplugged and BLE
+    /// should take over for devices that were previously on USB.
+    func resetNotifiedBLEDevices() {
+        stateQueue.sync {
+            let bleUIDs = notifiedDeviceUIDs.filter { uid in
+                deviceInfoMap[uid]?.transport == .ble
+            }
+            for uid in bleUIDs {
+                notifiedDeviceUIDs.remove(uid)
+            }
+            if !bleUIDs.isEmpty {
+                debugLog("[USBTransport] Reset notified BLE UIDs for re-init: \(bleUIDs)")
+            }
+        }
     }
 
     /// Send a HID++ request to the specified device (by UID).
@@ -315,13 +353,29 @@ final class USBTransport: HIDTransport, @unchecked Sendable {
             }
 
             if result != kIOReturnSuccess {
-                // Remove waiter and fail
-                self.stateQueue.sync {
-                    self.waiters.removeAll { $0.deviceIndex == deviceIndex && $0.featureIndex == featureIndex && $0.functionId == functionId }
+                // Remove waiter and fail — but only if it hasn't been consumed by a response already
+                let removed = self.stateQueue.sync { () -> Bool in
+                    if let idx = self.waiters.firstIndex(where: {
+                        $0.deviceIndex == deviceIndex && $0.featureIndex == featureIndex
+                            && $0.functionId == functionId && $0.softwareId == softwareId
+                    }) {
+                        self.waiters.remove(at: idx)
+                        return true
+                    }
+                    return false
                 }
-                continuation.resume(throwing: HIDPPError.transportError(
-                    String(format: "IOHIDDeviceSetReport failed: 0x%08X", result)
-                ))
+
+                if removed {
+                    debugLog("[USBTransport] SetReport failed: 0x\(String(format: "%08X", result)) for uid=\(targetDeviceUID ?? "any")")
+                    let error: HIDPPError
+                    if result == IOReturn(bitPattern: 0xE000_02CD) || result == IOReturn(bitPattern: 0xE000_02E2) {
+                        error = .exclusiveAccess
+                    } else {
+                        error = .transportError(String(format: "IOHIDDeviceSetReport failed: 0x%08X", result))
+                    }
+                    continuation.resume(throwing: error)
+                }
+                // If not removed, it was already consumed by a response handler — don't double-resume
             }
         }
 
@@ -417,19 +471,23 @@ final class USBTransport: HIDTransport, @unchecked Sendable {
             return
         }
 
-        // Open device for sending
-        // For BLE HID devices, IOHIDDeviceOpen may fail with kIOReturnNotPermitted due to TCC.
-        // The IOHIDManagerOpen should have already opened the device at the manager level.
-        // We try the explicit open but proceed for BLE even if it fails — SetReport may
-        // still work through the manager-level open.
-        let result = IOHIDDeviceOpen(device, IOOptionBits(kIOHIDOptionsTypeNone))
-        if result != kIOReturnSuccess {
-            if interfaceType == .ble {
-                debugLog("[USBTransport] IOHIDDeviceOpen failed for BLE: 0x\(String(format: "%08X", result)) uid=\(uid) — will try SetReport anyway")
+        // Open device for sending — both USB and BLE.
+        // BLE HID devices on macOS are virtual devices created by BTLEServer via
+        // IOHIDResourceDeviceUserClient. The vendor-specific HID++ collection (0xFF43)
+        // is NOT seized by the system event driver, so non-exclusive open should work.
+        let openResult = IOHIDDeviceOpen(device, IOOptionBits(kIOHIDOptionsTypeNone))
+        if openResult != kIOReturnSuccess {
+            if openResult == IOReturn(bitPattern: 0xE000_02E2) {
+                // kIOReturnExclusiveAccess — device truly locked by another driver
+                debugLog("[USBTransport] IOHIDDeviceOpen exclusive access for uid=\(uid) — marking failed")
+                if interfaceType == .ble { failedBLEUIDs.insert(uid) }
+            } else if openResult == IOReturn(bitPattern: 0xE000_02CD) {
+                // kIOReturnNotOpen — device not ready
+                debugLog("[USBTransport] IOHIDDeviceOpen not ready for uid=\(uid)")
             } else {
-                debugLog("[USBTransport] IOHIDDeviceOpen failed: 0x\(String(format: "%08X", result)) uid=\(uid)")
-                return
+                debugLog("[USBTransport] IOHIDDeviceOpen failed: 0x\(String(format: "%08X", openResult)) uid=\(uid)")
             }
+            return
         }
 
         // Store the raw CFTypeRef pointer — must match the sender pointer in input report callbacks.
@@ -444,7 +502,7 @@ final class USBTransport: HIDTransport, @unchecked Sendable {
         }
 
         debugLog("[USBTransport] Device opened: \(name) (PID: \(String(format: "0x%04X", pid))) uid=\(uid) type=\(interfaceType.rawValue) ptr=\(String(format: "0x%lX", devicePtr))")
-        logger.info("[USBTransport] Device matched: \(name) (PID: \(String(format: "0x%04X", pid))) [\(interfaceType.rawValue)]")
+        logger.info("[USBTransport] Device matched: \(name, privacy: .public) (PID: \(String(format: "0x%04X", pid), privacy: .public)) [\(interfaceType.rawValue, privacy: .public)]")
 
         // Fire callback only once per device UID (unless it was truly removed and came back)
         if !wasNotified {
@@ -479,7 +537,9 @@ final class USBTransport: HIDTransport, @unchecked Sendable {
             // pointer mapping and let the debounce handle true removal. When the device
             // re-appears (handleDeviceMatched), it will silently swap the IOHIDDevice reference.
             stateQueue.sync {
-                openDevices.removeValue(forKey: uid)
+                if let oldDevice = openDevices.removeValue(forKey: uid) {
+                    IOHIDDeviceClose(oldDevice, IOOptionBits(kIOHIDOptionsTypeNone))
+                }
                 devicePtrToUID.removeValue(forKey: devicePtr)
                 // Keep deviceInfoMap and notifiedDeviceUIDs — device will likely reappear
             }
@@ -512,7 +572,9 @@ final class USBTransport: HIDTransport, @unchecked Sendable {
         } else {
             // USB receiver: clear immediately and cancel all waiters
             stateQueue.sync {
-                openDevices.removeValue(forKey: uid)
+                if let oldDevice = openDevices.removeValue(forKey: uid) {
+                    IOHIDDeviceClose(oldDevice, IOOptionBits(kIOHIDOptionsTypeNone))
+                }
                 devicePtrToUID.removeValue(forKey: devicePtr)
             }
 

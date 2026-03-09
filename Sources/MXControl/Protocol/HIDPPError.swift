@@ -5,6 +5,8 @@ enum HIDPPError: Error, LocalizedError, Sendable {
     // Transport errors
     case transportNotOpen
     case transportError(String)
+    case tccDenied
+    case exclusiveAccess
     case timeout
     case deviceNotFound
 
@@ -22,6 +24,10 @@ enum HIDPPError: Error, LocalizedError, Sendable {
             return "Transport is not open"
         case .transportError(let msg):
             return "Transport error: \(msg)"
+        case .tccDenied:
+            return "Input Monitoring permission required — grant access in System Settings > Privacy & Security > Input Monitoring"
+        case .exclusiveAccess:
+            return "Another process has exclusive access to HID devices — quit Logi Options+ or similar apps and retry"
         case .timeout:
             return "Request timed out"
         case .deviceNotFound:

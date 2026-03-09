@@ -1,3 +1,4 @@
+import CoreBluetooth
 import Foundation
 import IOKit.hid
 import Observation
@@ -57,6 +58,27 @@ final class DeviceManager {
     /// BLE device UIDs that have been successfully initialized — prevents re-init on re-enumeration.
     private var initializedBLEUIDs: Set<String> = []
 
+    /// BLE device UIDs that permanently failed (e.g. exclusive access) — prevents retry spam.
+    private var failedBLEUIDs: Set<String> = []
+
+    // MARK: - CoreBluetooth BLE (read-only: battery + device info)
+
+    /// CoreBluetooth scanner for BLE Logitech devices.
+    private var bleScanner: BLEScanner?
+
+    /// Active BLEInfoService instances, keyed by CBPeripheral UUID.
+    private var bleInfoServices: [UUID: BLEInfoService] = [:]
+
+    /// BLE-only devices discovered via CoreBluetooth (battery + device info only).
+    /// These are NOT full LogiDevice instances — HID++ is inaccessible via BLE.
+    var bleDevices: [BLEDeviceInfo] = []
+
+    /// CBPeripheral UUIDs currently being initialized — prevents concurrent init.
+    private var initializingCBPeripherals: Set<UUID> = []
+
+    /// CBPeripheral UUIDs that have been successfully initialized.
+    private var initializedCBPeripherals: Set<UUID> = []
+
     // MARK: - Init
 
     init() {
@@ -81,7 +103,7 @@ final class DeviceManager {
 
         // USB receiver matched — probe sub-devices 1-6
         t.onReceiverMatched = { [weak self] info in
-            logger.info("[DeviceManager] USB receiver matched: \(info.name) PID=\(String(format: "0x%04X", info.pid))")
+            logger.info("[DeviceManager] USB receiver matched: \(info.name, privacy: .public) PID=\(String(format: "0x%04X", info.pid), privacy: .public)")
             Task { @MainActor [weak self] in
                 guard let self, !self.isProbing else {
                     debugLog("[DeviceManager] Skipping duplicate probe (isProbing=\(self?.isProbing ?? false))")
@@ -93,7 +115,7 @@ final class DeviceManager {
 
         // BLE direct device matched — initialize as direct device
         t.onBLEDeviceMatched = { [weak self] info in
-            logger.info("[DeviceManager] BLE device matched via IOKit: \(info.name) PID=\(String(format: "0x%04X", info.pid))")
+            logger.info("[DeviceManager] BLE device matched via IOKit: \(info.name, privacy: .public) PID=\(String(format: "0x%04X", info.pid), privacy: .public)")
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 await self.initializeBLEDevice(info: info)
@@ -112,10 +134,22 @@ final class DeviceManager {
             do {
                 try await t.open()
                 logger.info("[DeviceManager] IOHIDManager opened, scanning for Logitech devices (USB + BLE)...")
+            } catch HIDPPError.tccDenied {
+                logger.error("[DeviceManager] TCC denied — Input Monitoring permission not granted")
+                self.transport = nil
+                self.isScanning = false
+                self.statusMessage = "Input Monitoring permission required"
             } catch {
-                logger.error("[DeviceManager] Failed to open IOHIDManager: \(error.localizedDescription)")
+                logger.error("[DeviceManager] Failed to open IOHIDManager: \(error.localizedDescription, privacy: .public)")
+                // Reset state so startDiscovery() can be called again (e.g. via Rescan button)
+                self.transport = nil
+                self.isScanning = false
+                self.statusMessage = "Failed to open HID manager"
             }
         }
+
+        // Start CoreBluetooth scanner in parallel — handles BLE devices that IOKit can't access
+        startBLEScanner()
     }
 
     /// Stop all discovery and clean up.
@@ -127,12 +161,22 @@ final class DeviceManager {
         transport?.close()
         transport = nil
 
+        // Stop CoreBluetooth scanner and close all BLE info services
+        bleScanner?.stopScanning()
+        bleScanner = nil
+        for (_, svc) in bleInfoServices { svc.close() }
+        bleInfoServices.removeAll()
+        bleDevices.removeAll()
+        initializingCBPeripherals.removeAll()
+        initializedCBPeripherals.removeAll()
+
         usbDeviceNames.removeAll()
         deviceTransportType.removeAll()
         uidToDeviceId.removeAll()
         deviceIdToUID.removeAll()
         initializingBLEUIDs.removeAll()
         initializedBLEUIDs.removeAll()
+        failedBLEUIDs.removeAll()
         isScanning = false
         statusMessage = "Stopped"
     }
@@ -222,11 +266,11 @@ final class DeviceManager {
                 case .hidppError(let code, _):
                     logger.debug("[DeviceManager] No device at index \(index) (HID++ error: \(code.name))")
                 default:
-                    logger.warning("[DeviceManager] Error probing index \(index): \(error.localizedDescription)")
+                    logger.warning("[DeviceManager] Error probing index \(index): \(error.localizedDescription, privacy: .public)")
                 }
                 continue
             } catch {
-                logger.warning("[DeviceManager] Error probing index \(index): \(error)")
+                logger.warning("[DeviceManager] Error probing index \(index): \(error, privacy: .public)")
                 continue
             }
         }
@@ -259,7 +303,7 @@ final class DeviceManager {
 
         let deviceIndex: UInt8 = 0x01
 
-        // Guard: skip if this UID is already being initialized or was already initialized
+        // Guard: skip if this UID is already being initialized, was already initialized, or permanently failed
         if initializingBLEUIDs.contains(info.uid) {
             debugLog("[DeviceManager] BLE IOKit skip \(info.name) — already initializing uid=\(info.uid)")
             return
@@ -268,11 +312,15 @@ final class DeviceManager {
             debugLog("[DeviceManager] BLE IOKit skip \(info.name) — already initialized uid=\(info.uid)")
             return
         }
+        if failedBLEUIDs.contains(info.uid) {
+            debugLog("[DeviceManager] BLE IOKit skip \(info.name) — permanently failed uid=\(info.uid)")
+            return
+        }
 
         // Dedup: skip if same device name already found via USB
         if usbDeviceNames.contains(info.name) {
             debugLog("[DeviceManager] BLE IOKit skip \(info.name) — already on USB")
-            logger.info("[DeviceManager] Skipping BLE device \(info.name) — already connected via USB")
+            logger.info("[DeviceManager] Skipping BLE device \(info.name, privacy: .public) — already connected via USB")
             return
         }
 
@@ -293,11 +341,11 @@ final class DeviceManager {
                 featureIndex: 0x00,
                 functionId: 0x01,
                 params: [0x00, 0x00, 0xBB],
-                timeout: 3.0
+                timeout: 5.0
             )
 
             debugLog("[DeviceManager] BLE IOKit: ping succeeded for \(info.name)!")
-            logger.info("[DeviceManager] BLE device \(info.name) responded to ping")
+            logger.info("[DeviceManager] BLE device \(info.name, privacy: .public) responded to ping")
 
             // First pass: discover identity
             let probe = LogiDevice(deviceIndex: deviceIndex, transport: adapter)
@@ -318,7 +366,7 @@ final class DeviceManager {
                 await mouse.loadMouseFeatures()
                 await SettingsStore.applyMouseSettings(to: mouse)
                 device = mouse
-                logger.info("[DeviceManager] BLE: Promoted \(info.name) to MouseDevice")
+                logger.info("[DeviceManager] BLE: Promoted \(info.name, privacy: .public) to MouseDevice")
 
             case .keyboard:
                 let keyboard = KeyboardDevice(deviceIndex: deviceIndex, transport: adapter)
@@ -326,11 +374,11 @@ final class DeviceManager {
                 await keyboard.loadKeyboardFeatures()
                 await SettingsStore.applyKeyboardSettings(to: keyboard)
                 device = keyboard
-                logger.info("[DeviceManager] BLE: Promoted \(info.name) to KeyboardDevice")
+                logger.info("[DeviceManager] BLE: Promoted \(info.name, privacy: .public) to KeyboardDevice")
 
             default:
                 device = probe
-                logger.info("[DeviceManager] BLE: \(info.name) is unknown type, keeping as LogiDevice")
+                logger.info("[DeviceManager] BLE: \(info.name, privacy: .public) is unknown type, keeping as LogiDevice")
             }
 
             devices.append(device)
@@ -339,6 +387,18 @@ final class DeviceManager {
             deviceIdToUID[device.id] = info.uid
             initializedBLEUIDs.insert(info.uid)
 
+            // Remove duplicate CB BLEDeviceInfo (if CoreBluetooth scanner already read battery)
+            if let idx = bleDevices.firstIndex(where: { $0.name == device.name }) {
+                let peripheralId = bleDevices[idx].peripheralId
+                debugLog("[DeviceManager] Removing CB duplicate for \(device.name) — IOKit HID++ preferred")
+                bleDevices.remove(at: idx)
+                if let svc = bleInfoServices.removeValue(forKey: peripheralId) {
+                    svc.close()
+                }
+                initializedCBPeripherals.remove(peripheralId)
+            }
+
+            isScanning = false
             updateStatus()
             setupNotificationRouting()
 
@@ -346,17 +406,148 @@ final class DeviceManager {
                 startBatteryRefresh()
             }
 
+        } catch HIDPPError.exclusiveAccess {
+            debugLog("[DeviceManager] BLE IOKit exclusive access for \(info.name) — macOS blocking direct HID access")
+            logger.warning("[DeviceManager] BLE device \(info.name, privacy: .public): exclusive access denied by macOS")
+            failedBLEUIDs.insert(info.uid)
+            isScanning = false
+            statusMessage = "BLE access restricted by macOS"
         } catch {
             debugLog("[DeviceManager] BLE IOKit init failed for \(info.name): \(error)")
-            logger.warning("[DeviceManager] Failed to initialize BLE device \(info.name): \(error.localizedDescription)")
+            logger.warning("[DeviceManager] Failed to initialize BLE device \(info.name, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            isScanning = false
         }
+    }
+
+    // MARK: - CoreBluetooth BLE Discovery
+
+    /// Start the CoreBluetooth scanner for BLE HID++ devices.
+    private func startBLEScanner() {
+        guard bleScanner == nil else { return }
+
+        let scanner = BLEScanner()
+        self.bleScanner = scanner
+
+        scanner.onPeripheralConnected = { [weak self] peripheral, name in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                await self.initializeBLEDeviceViaCB(peripheral: peripheral, name: name)
+            }
+        }
+
+        scanner.onPeripheralDisconnected = { [weak self] peripheralId, name in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.handleCBPeripheralDisconnected(peripheralId: peripheralId, name: name)
+            }
+        }
+
+        scanner.startScanning()
+        debugLog("[DeviceManager] CoreBluetooth BLE scanner started")
+        logger.info("[DeviceManager] CoreBluetooth BLE scanner started")
+    }
+
+    /// Initialize a BLE device discovered via CoreBluetooth — read-only (battery + device info).
+    ///
+    /// HID++ is NOT accessible via BLE on macOS (kernel locks HOGP). This reads standard
+    /// GATT services only: Battery Service (0x180F) and Device Information (0x180A).
+    private func initializeBLEDeviceViaCB(peripheral: CBPeripheral, name: String) async {
+        let peripheralId = peripheral.identifier
+
+        // Guards
+        if initializingCBPeripherals.contains(peripheralId) {
+            debugLog("[DeviceManager] CB skip \(name) — already initializing")
+            return
+        }
+        if initializedCBPeripherals.contains(peripheralId) {
+            debugLog("[DeviceManager] CB skip \(name) — already initialized")
+            return
+        }
+        if usbDeviceNames.contains(name) {
+            debugLog("[DeviceManager] CB skip \(name) — already on USB")
+            return
+        }
+        // Dedup: skip if already initialized via IOKit BLE (full HID++)
+        if devices.contains(where: { $0.name == name }) {
+            debugLog("[DeviceManager] CB skip \(name) — already initialized via IOKit (full HID++)")
+            return
+        }
+
+        initializingCBPeripherals.insert(peripheralId)
+        defer { initializingCBPeripherals.remove(peripheralId) }
+
+        debugLog("[DeviceManager] CB: reading battery + info for \(name) via GATT...")
+        statusMessage = "Reading \(name) via BLE..."
+
+        let infoService = BLEInfoService(peripheral: peripheral, name: name)
+
+        do {
+            let info = try await infoService.open()
+
+            // Dedup: skip if same device already found via USB
+            if usbDeviceNames.contains(info.name) {
+                debugLog("[DeviceManager] CB skip \(info.name) — already on USB (post-read dedup)")
+                infoService.close()
+                return
+            }
+
+            // Also check if already in BLE device list
+            if bleDevices.contains(where: { $0.peripheralId == peripheralId }) {
+                debugLog("[DeviceManager] CB skip \(info.name) — already in BLE list")
+                infoService.close()
+                return
+            }
+
+            debugLog("[DeviceManager] CB: \(info.name) battery=\(info.batteryLevel.map(String.init) ?? "?")% model=\(info.modelNumber ?? "?")")
+            logger.info("[DeviceManager] CB: BLE device \(info.name, privacy: .public) — battery=\(info.batteryLevel.map(String.init) ?? "?", privacy: .public)%")
+
+            // Subscribe to battery updates
+            infoService.onUpdate = { [weak self] updatedInfo in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    if let idx = self.bleDevices.firstIndex(where: { $0.peripheralId == peripheralId }) {
+                        self.bleDevices[idx] = updatedInfo
+                        debugLog("[DeviceManager] CB: battery update for \(updatedInfo.name): \(updatedInfo.batteryLevel.map(String.init) ?? "?")%")
+                    }
+                }
+            }
+
+            bleDevices.append(info)
+            bleInfoServices[peripheralId] = infoService
+            initializedCBPeripherals.insert(peripheralId)
+
+            isScanning = false
+            updateStatus()
+
+        } catch {
+            debugLog("[DeviceManager] CB info read failed for \(name): \(error)")
+            logger.warning("[DeviceManager] CB: Failed to read \(name, privacy: .public) via GATT: \(error.localizedDescription, privacy: .public)")
+            infoService.close()
+        }
+    }
+
+    /// Handle CoreBluetooth peripheral disconnection.
+    private func handleCBPeripheralDisconnected(peripheralId: UUID, name: String) {
+        debugLog("[DeviceManager] CB: peripheral disconnected: \(name) id=\(peripheralId)")
+        logger.info("[DeviceManager] CB: BLE device disconnected: \(name, privacy: .public)")
+
+        // Clean up info service
+        if let svc = bleInfoServices.removeValue(forKey: peripheralId) {
+            svc.close()
+        }
+
+        // Remove from BLE device list
+        bleDevices.removeAll { $0.peripheralId == peripheralId }
+        initializedCBPeripherals.remove(peripheralId)
+
+        updateStatus()
     }
 
     // MARK: - Device Removal
 
     private func handleDeviceRemoved(info: IOKitDeviceInfo) {
         debugLog("[DeviceManager] Device removed: \(info.name) uid=\(info.uid) type=\(info.transport.rawValue)")
-        logger.info("[DeviceManager] Device removed: \(info.name) [\(info.transport.rawValue)]")
+        logger.info("[DeviceManager] Device removed: \(info.name, privacy: .public) [\(info.transport.rawValue, privacy: .public)]")
 
         switch info.transport {
         case .usb:
@@ -371,6 +562,15 @@ final class DeviceManager {
             }
             usbDeviceNames.removeAll()
             isProbing = false
+
+            // Clear BLE dedup guards so BLE can take over for devices
+            // previously skipped because they were on USB.
+            initializedBLEUIDs.removeAll()
+            initializedCBPeripherals.removeAll()
+
+            // Reset BLE notification state in transport so onBLEDeviceMatched fires again
+            // on the next IOKit re-enumeration cycle.
+            transport?.resetNotifiedBLEDevices()
 
         case .ble:
             // BLE device removed — remove just that device
@@ -396,17 +596,27 @@ final class DeviceManager {
     /// Remove a BLE-discovered device if USB found the same device (by name).
     /// USB is preferred due to lower latency.
     private func removeDuplicateBLEDevice(name: String) {
-        guard let bleDevice = devices.first(where: {
+        // Remove from IOKit BLE devices
+        if let bleDevice = devices.first(where: {
             $0.name == name && deviceTransportType[$0.id] == .ble
-        }) else { return }
+        }) {
+            debugLog("[DeviceManager] Removing BLE (IOKit) duplicate: \(name) (USB preferred)")
+            devices.removeAll { $0.id == bleDevice.id }
+            deviceTransportType.removeValue(forKey: bleDevice.id)
+            if let uid = deviceIdToUID.removeValue(forKey: bleDevice.id) {
+                uidToDeviceId.removeValue(forKey: uid)
+            }
+        }
 
-        debugLog("[DeviceManager] Removing BLE duplicate: \(name) (USB preferred)")
-        logger.info("[DeviceManager] Removing BLE duplicate \(name) — USB connection preferred")
-
-        devices.removeAll { $0.id == bleDevice.id }
-        deviceTransportType.removeValue(forKey: bleDevice.id)
-        if let uid = deviceIdToUID.removeValue(forKey: bleDevice.id) {
-            uidToDeviceId.removeValue(forKey: uid)
+        // Remove from CoreBluetooth BLE devices
+        if let idx = bleDevices.firstIndex(where: { $0.name == name }) {
+            let peripheralId = bleDevices[idx].peripheralId
+            debugLog("[DeviceManager] Removing BLE (CB) duplicate: \(name) (USB preferred)")
+            bleDevices.remove(at: idx)
+            if let svc = bleInfoServices.removeValue(forKey: peripheralId) {
+                svc.close()
+            }
+            initializedCBPeripherals.remove(peripheralId)
         }
     }
 
@@ -454,15 +664,18 @@ final class DeviceManager {
 
     private func updateStatus() {
         let usbCount = deviceTransportType.values.filter { $0 == .usb }.count
-        let bleCount = deviceTransportType.values.filter { $0 == .ble }.count
+        let bleIOKitCount = deviceTransportType.values.filter { $0 == .ble }.count
+        let bleCBCount = bleDevices.count
+        let totalBLE = bleIOKitCount + bleCBCount
+        let total = devices.count + bleCBCount
 
-        if devices.isEmpty {
+        if total == 0 {
             statusMessage = "No devices found"
         } else {
             var parts: [String] = []
             if usbCount > 0 { parts.append("\(usbCount) USB") }
-            if bleCount > 0 { parts.append("\(bleCount) BLE") }
-            statusMessage = "Found \(devices.count) device(s) (\(parts.joined(separator: ", ")))"
+            if totalBLE > 0 { parts.append("\(totalBLE) BLE") }
+            statusMessage = "Found \(total) device(s) (\(parts.joined(separator: ", ")))"
         }
     }
 
@@ -540,6 +753,8 @@ extension HIDPPError: Equatable {
     static func == (lhs: HIDPPError, rhs: HIDPPError) -> Bool {
         switch (lhs, rhs) {
         case (.transportNotOpen, .transportNotOpen): return true
+        case (.tccDenied, .tccDenied): return true
+        case (.exclusiveAccess, .exclusiveAccess): return true
         case (.timeout, .timeout): return true
         case (.deviceNotFound, .deviceNotFound): return true
         case (.invalidResponse, .invalidResponse): return true

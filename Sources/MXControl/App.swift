@@ -43,6 +43,20 @@ struct MenuBarView: View {
     @State private var selectedDevice: LogiDevice?
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
 
+    /// Header icon loaded from bundle Resources as a template image.
+    private static let headerIcon: NSImage = {
+        let img: NSImage
+        if let url = Bundle.main.url(forResource: "logi-logo", withExtension: "png"),
+           let loaded = NSImage(contentsOf: url) {
+            img = loaded
+        } else {
+            img = NSImage(systemSymbolName: "computermouse.fill", accessibilityDescription: "MXControl")!
+        }
+        img.isTemplate = true
+        img.size = NSSize(width: 14, height: 14)
+        return img
+    }()
+
     var body: some View {
         VStack(spacing: 0) {
             navHeader
@@ -120,8 +134,7 @@ struct MenuBarView: View {
         } else {
             // List mode: app title
             HStack(spacing: 6) {
-                Image(systemName: "computermouse.fill")
-                    .font(.system(size: 13))
+                Image(nsImage: Self.headerIcon)
                     .foregroundStyle(.secondary)
 
                 Text("MXControl")

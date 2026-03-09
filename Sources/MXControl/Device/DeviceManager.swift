@@ -429,8 +429,10 @@ final class DeviceManager {
                     // USB: route by receiver UID + deviceIndex
                     mouseMap["\(uid):\(mouse.deviceIndex)"] = mouse
                 } else {
-                    // BLE: route by device UID + deviceIndex (always 0x01)
+                    // BLE: route by device UID + deviceIndex (0x01)
                     mouseMap["\(uid):\(mouse.deviceIndex)"] = mouse
+                    // BLE notifications arrive with deviceIndex=0xFF (broadcast/self-address)
+                    mouseMap["\(uid):255"] = mouse
                 }
             }
         }

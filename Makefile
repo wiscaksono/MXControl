@@ -4,6 +4,7 @@ BUILD_DIR := .build/release
 BINARY := $(BUILD_DIR)/$(APP_NAME)
 APP_BUNDLE := $(APP_NAME).app
 INSTALL_DIR := /Applications
+SIGNING_IDENTITY ?= -
 
 .PHONY: build run bundle install dmg clean
 

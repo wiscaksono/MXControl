@@ -94,7 +94,11 @@ struct MouseDetailView: View {
                     // Host Info
                     if !mouse.hosts.isEmpty {
                         hostInfoSection
+                        separator
                     }
+
+                    // Connection Info
+                    ConnectionInfoRow(device: mouse)
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
@@ -407,7 +411,11 @@ struct KeyboardDetailView: View {
                     // Host Info
                     if !keyboard.hosts.isEmpty {
                         hostInfoSection
+                        separator
                     }
+
+                    // Connection Info
+                    ConnectionInfoRow(device: keyboard)
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
@@ -543,6 +551,42 @@ struct KeyboardDetailView: View {
             }
         }
         .padding(.vertical, 2)
+    }
+}
+
+// MARK: - Connection Info Row
+
+/// Shows transport type and protocol version for a device.
+private struct ConnectionInfoRow: View {
+    let device: LogiDevice
+    @Environment(DeviceManager.self) private var deviceManager
+
+    var body: some View {
+        let transport = deviceManager.transportType(for: device)
+        row {
+            Text("Connection")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .frame(width: 80, alignment: .leading)
+
+            Spacer()
+
+            if let transport {
+                HStack(spacing: 4) {
+                    Image(systemName: transport == .ble ? "bolt.horizontal.fill" : "cable.connector")
+                        .font(.system(size: 9))
+                    Text(transport == .ble ? "Bluetooth LE" : "USB Receiver")
+                        .font(.system(size: 11))
+                }
+                .foregroundStyle(transport == .ble ? .blue : .secondary)
+            }
+
+            if device.protocolMajor > 0 {
+                Text("HID++ \(device.protocolMajor).\(device.protocolMinor)")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+            }
+        }
     }
 }
 

@@ -66,6 +66,20 @@ struct MenuBarView: View {
                 Text(device.name)
                     .font(.system(size: 13, weight: .medium))
                     .lineLimit(1)
+
+                if let transport = deviceManager.transportType(for: device) {
+                    Text(transport.rawValue)
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(transport == .ble ? .blue : .secondary)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(
+                            RoundedRectangle(cornerRadius: 3)
+                                .fill(transport == .ble
+                                    ? Color.blue.opacity(0.12)
+                                    : Color.secondary.opacity(0.12))
+                        )
+                }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
@@ -117,7 +131,7 @@ struct MenuBarView: View {
                 Text("No Devices Found")
                     .font(.system(size: 13, weight: .medium))
 
-                Text("Make sure your Logi Bolt receiver is connected via USB")
+                Text("Connect a Logi Bolt receiver via USB\nor pair a device via Bluetooth")
                     .font(.system(size: 11))
                     .foregroundStyle(.tertiary)
                     .multilineTextAlignment(.center)
@@ -144,7 +158,10 @@ struct MenuBarView: View {
                         Divider()
                             .padding(.horizontal, 12)
                     }
-                    DeviceRowView(device: device) {
+                    DeviceRowView(
+                        device: device,
+                        transportType: deviceManager.transportType(for: device)
+                    ) {
                         selectedDevice = device
                     }
                 }
@@ -215,20 +232,46 @@ struct MenuBarView: View {
 
 struct DeviceRowView: View {
     let device: LogiDevice
+    var transportType: TransportType?
     var onTap: () -> Void
 
     @State private var isHovered = false
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: deviceIcon)
-                .font(.system(size: 15))
-                .foregroundStyle(.secondary)
-                .frame(width: 22)
+            // Device icon with transport overlay
+            ZStack(alignment: .bottomTrailing) {
+                Image(systemName: deviceIcon)
+                    .font(.system(size: 15))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 22)
+
+                if transportType == .ble {
+                    Image(systemName: "bolt.horizontal.fill")
+                        .font(.system(size: 6))
+                        .foregroundStyle(.blue)
+                        .offset(x: 3, y: 2)
+                }
+            }
 
             Text(device.name)
                 .font(.system(size: 13, weight: .medium))
                 .lineLimit(1)
+
+            // Transport badge
+            if let transport = transportType {
+                Text(transport.rawValue)
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(transport == .ble ? .blue : .secondary)
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 1)
+                    .background(
+                        RoundedRectangle(cornerRadius: 3)
+                            .fill(transport == .ble
+                                ? Color.blue.opacity(0.12)
+                                : Color.secondary.opacity(0.12))
+                    )
+            }
 
             Spacer()
 

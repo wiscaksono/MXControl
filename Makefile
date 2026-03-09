@@ -4,7 +4,6 @@ BUILD_DIR := .build/release
 BINARY := $(BUILD_DIR)/$(APP_NAME)
 APP_BUNDLE := $(APP_NAME).app
 INSTALL_DIR := /Applications
-SIGNING_IDENTITY ?= -
 
 .PHONY: build run bundle install clean
 
@@ -26,8 +25,8 @@ bundle: build
 	@cp Sources/Info.plist $(APP_BUNDLE)/Contents/Info.plist
 	@# Generate PkgInfo
 	@echo "APPL????" > $(APP_BUNDLE)/Contents/PkgInfo
-	@# Codesign with entitlements
-	@codesign --force --sign - \
+	@# Codesign (override SIGNING_IDENTITY for dev cert, defaults to ad-hoc)
+	@codesign --force --sign "$(SIGNING_IDENTITY)" \
 		--entitlements Sources/Entitlements.plist \
 		--options runtime \
 		$(APP_BUNDLE)

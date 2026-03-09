@@ -30,6 +30,33 @@ enum DeviceRegistry {
         receiverPIDs.contains(pid)
     }
 
+    // MARK: - Known BLE Device PIDs
+
+    /// BLE product IDs for known Logitech devices (direct BLE connection, no receiver).
+    /// These PIDs appear in the GATT Device Information service (PnP ID characteristic)
+    /// or can be queried via HID++ DeviceNameType feature.
+    struct BLEDeviceInfo {
+        let pid: Int
+        let name: String
+        let type: DeviceType
+    }
+
+    static let bleDevices: [BLEDeviceInfo] = [
+        BLEDeviceInfo(pid: 0xB034, name: "MX Master 3S", type: .mouse),
+        BLEDeviceInfo(pid: 0xB369, name: "MX Keys Mini", type: .keyboard),
+        // Add more BLE PIDs here as devices are tested
+    ]
+
+    /// Look up a BLE device by PID.
+    static func bleDevice(pid: Int) -> BLEDeviceInfo? {
+        bleDevices.first { $0.pid == pid }
+    }
+
+    /// Check if a PID is a known BLE direct-connect device.
+    static func isBLEDevice(pid: Int) -> Bool {
+        bleDevices.contains { $0.pid == pid }
+    }
+
     // MARK: - Known Feature Names
 
     /// Human-readable names for common HID++ 2.0 feature IDs.

@@ -2,7 +2,7 @@ import Foundation
 
 /// Protocol for sending/receiving HID++ packets to Logitech devices.
 ///
-/// Implementations: USBTransport (IOKit HID), BLETransport (CoreBluetooth).
+/// Implementations: USBTransport (IOKit HID for USB+BLE), DeviceTransportAdapter (per-device wrapper).
 protocol HIDTransport: Sendable {
     /// Send a HID++ request and wait for the matching response.
     ///

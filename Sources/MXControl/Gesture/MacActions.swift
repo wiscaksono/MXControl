@@ -15,22 +15,41 @@ import os
 /// Requires Accessibility permission.
 enum MacActions {
 
+    // MARK: - Workspace Switch Cooldown
+
+    /// macOS ignores keyboard shortcuts during workspace switch animation (~750-1000ms).
+    /// Track the last switch time so we can delay Mission Control until animation completes.
+    nonisolated(unsafe) private static var lastWorkspaceSwitchTime: Date = .distantPast
+
     // MARK: - Actions
 
     /// Trigger Mission Control (Ctrl+Fn+UpArrow, SymbolicHotKey ID 32).
+    /// If called right after a workspace switch, delays until animation finishes (~1s).
     static func missionControl() {
-        postKeyboardShortcut(keyCode: 0x7E)  // kVK_UpArrow
-        debugLog("[MacActions] Mission Control triggered")
+        let elapsed = Date().timeIntervalSince(lastWorkspaceSwitchTime)
+        if elapsed < 1.5 {
+            let delay = 1.5 - elapsed
+            debugLog("[MacActions] Mission Control delayed \(String(format: "%.0f", delay * 1000))ms (workspace cooldown)")
+            DispatchQueue.global(qos: .userInteractive).asyncAfter(deadline: .now() + delay) {
+                postKeyboardShortcut(keyCode: 0x7E)
+                debugLog("[MacActions] Mission Control triggered (after cooldown)")
+            }
+        } else {
+            postKeyboardShortcut(keyCode: 0x7E)  // kVK_UpArrow
+            debugLog("[MacActions] Mission Control triggered")
+        }
     }
 
     /// Switch to the workspace on the LEFT (Ctrl+Fn+LeftArrow, SymbolicHotKey ID 79).
     static func workspaceLeft() {
+        lastWorkspaceSwitchTime = Date()
         postKeyboardShortcut(keyCode: 0x7B)  // kVK_LeftArrow
         debugLog("[MacActions] Workspace Left triggered")
     }
 
     /// Switch to the workspace on the RIGHT (Ctrl+Fn+RightArrow, SymbolicHotKey ID 81).
     static func workspaceRight() {
+        lastWorkspaceSwitchTime = Date()
         postKeyboardShortcut(keyCode: 0x7C)  // kVK_RightArrow
         debugLog("[MacActions] Workspace Right triggered")
     }

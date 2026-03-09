@@ -82,17 +82,12 @@ final class GestureEngine: @unchecked Sendable {
                 let totalDelta = abs(accumulatedDeltaX)
                 debugLog("[GestureEngine] Thumb button RELEASED in PENDING (elapsed=\(String(format: "%.3f", elapsed))s deltaX=\(accumulatedDeltaX) |dx|=\(totalDelta))")
 
-                // Click-first: if within time limit OR below threshold → always click
-                if elapsed < clickTimeLimit || totalDelta < dragThreshold {
-                    debugLog("[GestureEngine] → CLICK → Mission Control")
-                    state = .idle
-                    lock.unlock()
-                    MacActions.missionControl()
-                    lock.lock()
-                } else {
-                    debugLog("[GestureEngine] → LATE DRAG (already handled)")
-                    state = .idle
-                }
+                // If we're still in PENDING at release, gesture never fired → always click.
+                debugLog("[GestureEngine] → CLICK → Mission Control")
+                state = .idle
+                lock.unlock()
+                MacActions.missionControl()
+                lock.lock()
             }
 
         case .gesture:

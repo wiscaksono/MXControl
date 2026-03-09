@@ -5,7 +5,7 @@ BINARY := $(BUILD_DIR)/$(APP_NAME)
 APP_BUNDLE := $(APP_NAME).app
 INSTALL_DIR := /Applications
 
-.PHONY: build run bundle install clean
+.PHONY: build run bundle install dmg clean
 
 build:
 	swift build -c release
@@ -38,6 +38,14 @@ install: bundle
 	@cp -R $(APP_BUNDLE) $(INSTALL_DIR)/$(APP_BUNDLE)
 	@echo "Installed to $(INSTALL_DIR)/$(APP_BUNDLE)"
 
+dmg: bundle
+	@rm -f $(APP_NAME).dmg
+	@hdiutil create -volname "$(APP_NAME)" \
+		-srcfolder $(APP_BUNDLE) \
+		-ov -format UDZO \
+		$(APP_NAME).dmg
+	@echo "Created $(APP_NAME).dmg"
+
 clean:
 	swift package clean
-	rm -rf $(APP_BUNDLE)
+	rm -rf $(APP_BUNDLE) $(APP_NAME).dmg

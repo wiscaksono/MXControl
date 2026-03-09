@@ -109,7 +109,7 @@ struct MouseDetailView: View {
     // MARK: - Save
 
     private func save() {
-        deviceManager.saveMouseSettings(mouse)
+        SettingsStore.save(mouse: mouse)
     }
 
     // MARK: - Battery
@@ -176,7 +176,10 @@ struct MouseDetailView: View {
                 range: 0...512,
                 step: 1
             ) {
-                Task { try? await mouse.setPointerSpeed(mouse.pointerSpeed) }
+                Task {
+                    do { try await mouse.setPointerSpeed(mouse.pointerSpeed) }
+                    catch { debugLog("[UI] setPointerSpeed failed: \(error)") }
+                }
                 save()
             }
         }
@@ -203,7 +206,10 @@ struct MouseDetailView: View {
                 .pickerStyle(.segmented)
                 .frame(maxWidth: 160)
                 .onChange(of: mouse.smartShiftWheelMode) { _, newMode in
-                    Task { try? await mouse.setSmartShift(wheelMode: newMode) }
+                    Task {
+                        do { try await mouse.setSmartShift(wheelMode: newMode) }
+                        catch { debugLog("[UI] setSmartShift wheelMode failed: \(error)") }
+                    }
                     save()
                 }
             }
@@ -213,7 +219,10 @@ struct MouseDetailView: View {
                 isOn: $mouse.smartShiftActive,
                 subtitle: "Auto-switch ratchet / free-spin"
             ) { enabled in
-                Task { try? await mouse.setSmartShift(autoDisengage: enabled ? 50 : 0) }
+                Task {
+                    do { try await mouse.setSmartShift(autoDisengage: enabled ? 50 : 0) }
+                    catch { debugLog("[UI] setSmartShift autoDisengage failed: \(error)") }
+                }
                 save()
             }
 
@@ -224,7 +233,10 @@ struct MouseDetailView: View {
                     range: 1...mouse.smartShiftMaxForce,
                     step: 1
                 ) {
-                    Task { try? await mouse.setSmartShift(torque: mouse.smartShiftTorque) }
+                    Task {
+                        do { try await mouse.setSmartShift(torque: mouse.smartShiftTorque) }
+                        catch { debugLog("[UI] setSmartShift torque failed: \(error)") }
+                    }
                     save()
                 }
             }
@@ -241,7 +253,10 @@ struct MouseDetailView: View {
                 isOn: $mouse.thumbWheelInverted,
                 subtitle: "Reverse horizontal scroll"
             ) { inverted in
-                Task { try? await mouse.setThumbWheelInverted(inverted) }
+                Task {
+                    do { try await mouse.setThumbWheelInverted(inverted) }
+                    catch { debugLog("[UI] setThumbWheelInverted failed: \(error)") }
+                }
                 save()
             }
         }
@@ -359,10 +374,14 @@ private struct ButtonRemapRow: View {
             currentAction: $selectedAction
         ) { newAction in
             Task {
-                try? await mouse.remapButton(
-                    controlId: button.controlId,
-                    to: newAction.remapCID
-                )
+                do {
+                    try await mouse.remapButton(
+                        controlId: button.controlId,
+                        to: newAction.remapCID
+                    )
+                } catch {
+                    debugLog("[UI] remapButton CID=\(button.controlId) failed: \(error)")
+                }
                 onRemapped?()
             }
         }
@@ -427,7 +446,7 @@ struct KeyboardDetailView: View {
     }
 
     private func save() {
-        deviceManager.saveKeyboardSettings(keyboard)
+        SettingsStore.save(keyboard: keyboard)
     }
 
     // MARK: - Battery

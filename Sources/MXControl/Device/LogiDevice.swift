@@ -3,6 +3,16 @@ import Observation
 import os
 
 /// Represents a single Logitech HID++ 2.0 device connected through a transport.
+///
+/// `@MainActor` ensures all property access is isolated to the main thread,
+/// preventing data races between SwiftUI reads and async write operations.
+///
+/// `@unchecked Sendable` is required so device references can be captured in
+/// `@Sendable` closures (e.g., notification routing, Task closures). This does NOT
+/// mean cross-isolation access is safe — all property reads/writes MUST remain on
+/// `@MainActor`. The compiler cannot enforce this through `@unchecked`, so take care
+/// when passing device references across isolation boundaries.
+@MainActor
 @Observable
 class LogiDevice: Identifiable, @unchecked Sendable {
 
@@ -98,6 +108,23 @@ class LogiDevice: Identifiable, @unchecked Sendable {
         isInitialized = true
 
         printSummary()
+    }
+
+    // MARK: - Identity Transfer
+
+    /// Transfer discovered identity (name, type, features, cache) from a probe device.
+    ///
+    /// This avoids re-running `initialize()` when promoting a temporary `LogiDevice`
+    /// to a typed subclass (`MouseDevice`/`KeyboardDevice`), saving ~27 HID++ round-trips.
+    func transferIdentity(from probe: LogiDevice) async {
+        self.name = probe.name
+        self.deviceKind = probe.deviceKind
+        self.deviceType = probe.deviceType
+        self.protocolMajor = probe.protocolMajor
+        self.protocolMinor = probe.protocolMinor
+        self.features = probe.features
+        self.isInitialized = true
+        await self.featureIndexCache.transferFrom(probe.featureIndexCache)
     }
 
     // MARK: - Helpers

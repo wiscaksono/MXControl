@@ -58,4 +58,12 @@ actor FeatureIndexCache {
     var all: [UInt16: UInt8] {
         cache
     }
+
+    /// Copy all entries from another cache (used when promoting a probe to a typed device).
+    func transferFrom(_ other: FeatureIndexCache) async {
+        let entries = await other.all
+        for (featureId, index) in entries {
+            cache[featureId] = index
+        }
+    }
 }

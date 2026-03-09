@@ -18,6 +18,18 @@ enum HIDPPError: Error, LocalizedError, Sendable {
     // HID++ 2.0 error codes (from device)
     case hidppError(code: HIDPPErrorCode, featureIndex: UInt8)
 
+    /// Whether this error is transient and worth retrying.
+    var isTransient: Bool {
+        switch self {
+        case .timeout:
+            return true
+        case .hidppError(let code, _):
+            return code == .busy || code == .hardwareError
+        default:
+            return false
+        }
+    }
+
     var errorDescription: String? {
         switch self {
         case .transportNotOpen:
@@ -40,6 +52,26 @@ enum HIDPPError: Error, LocalizedError, Sendable {
             return String(format: "Unknown report ID: 0x%02X", id)
         case .hidppError(let code, let idx):
             return String(format: "HID++ error %d (%@) on feature index 0x%02X", code.rawValue, code.name, idx)
+        }
+    }
+}
+
+// MARK: - Equatable
+
+extension HIDPPError: Equatable {
+    static func == (lhs: HIDPPError, rhs: HIDPPError) -> Bool {
+        switch (lhs, rhs) {
+        case (.transportNotOpen, .transportNotOpen): return true
+        case (.tccDenied, .tccDenied): return true
+        case (.exclusiveAccess, .exclusiveAccess): return true
+        case (.timeout, .timeout): return true
+        case (.deviceNotFound, .deviceNotFound): return true
+        case (.invalidResponse, .invalidResponse): return true
+        case (.transportError(let a), .transportError(let b)): return a == b
+        case (.featureNotSupported(let a), .featureNotSupported(let b)): return a == b
+        case (.unknownReportId(let a), .unknownReportId(let b)): return a == b
+        case (.hidppError(let c1, let f1), .hidppError(let c2, let f2)): return c1 == c2 && f1 == f2
+        default: return false
         }
     }
 }

@@ -5,6 +5,7 @@ import os
 
 // MARK: - Debug File Logger
 
+#if DEBUG
 /// Write debug log directly to file, bypassing macOS privacy filtering.
 private let debugLogFile: FileHandle? = {
     let path = "/tmp/mxcontrol_debug.log"
@@ -12,17 +13,32 @@ private let debugLogFile: FileHandle? = {
     return FileHandle(forWritingAtPath: path)
 }()
 
+nonisolated(unsafe) private let debugDateFormatter: ISO8601DateFormatter = {
+    let f = ISO8601DateFormatter()
+    f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    return f
+}()
+
+nonisolated(unsafe) private let debugLogQueue = DispatchQueue(label: "com.mxcontrol.debuglog")
+
 func debugLog(_ message: String) {
-    let ts = ISO8601DateFormatter().string(from: Date())
+    let ts = debugDateFormatter.string(from: Date())
     let line = "[\(ts)] \(message)\n"
-    debugLogFile?.seekToEndOfFile()
-    debugLogFile?.write(line.data(using: .utf8) ?? Data())
+    debugLogQueue.async {
+        debugLogFile?.seekToEndOfFile()
+        debugLogFile?.write(line.data(using: .utf8) ?? Data())
+    }
 }
+#else
+@inline(__always) func debugLog(_ message: @autoclosure () -> String) {}
+#endif
 
 // MARK: - Response Waiter
 
 /// A pending request waiting for a matching HID++ response.
 private struct ResponseWaiter: Sendable {
+    /// Unique identifier for precise removal on timeout/cancellation.
+    let id: UUID
     /// The IOKit device UID this waiter targets (for BLE disambiguation).
     /// For USB receiver, all sub-devices share one UID. For BLE, each device has its own.
     let targetDeviceUID: String?
@@ -322,60 +338,92 @@ final class USBTransport: HIDTransport, @unchecked Sendable {
         let outHex = bytes.map { String(format: "%02X", $0) }.joined(separator: " ")
         debugLog("[USBTransport] OUT (\(outHex)) -> \(targetDeviceUID ?? "any")")
 
-        // Set up response waiter before sending to avoid race
-        let response: HIDPPResponse = try await withCheckedThrowingContinuation { continuation in
-            let waiter = ResponseWaiter(
-                targetDeviceUID: targetDeviceUID,
-                deviceIndex: deviceIndex,
-                featureIndex: featureIndex,
-                functionId: functionId,
-                softwareId: softwareId,
-                continuation: continuation
-            )
+        // Set up response waiter before sending to avoid race.
+        // withTaskCancellationHandler ensures the waiter is cleaned up if the
+        // enclosing Task is cancelled (e.g., by sendWithTimeout's TaskGroup).
+        let waiterID = UUID()
 
-            stateQueue.sync {
-                waiters.append(waiter)
-            }
-
-            // Send the report
-            let data = Data(bytes)
-            let result = data.withUnsafeBytes { rawBuf -> IOReturn in
-                guard let ptr = rawBuf.baseAddress?.assumingMemoryBound(to: UInt8.self) else {
-                    return kIOReturnBadArgument
-                }
-                return IOHIDDeviceSetReport(
-                    device,
-                    kIOHIDReportTypeOutput,
-                    CFIndex(reportId.rawValue),
-                    ptr,
-                    data.count
+        let response: HIDPPResponse = try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                let waiter = ResponseWaiter(
+                    id: waiterID,
+                    targetDeviceUID: targetDeviceUID,
+                    deviceIndex: deviceIndex,
+                    featureIndex: featureIndex,
+                    functionId: functionId,
+                    softwareId: softwareId,
+                    continuation: continuation
                 )
+
+                stateQueue.sync {
+                    waiters.append(waiter)
+                }
+
+                // Guard against pre-cancelled task: onCancel may have already
+                // fired (before the waiter was added) and was a no-op. Clean up
+                // the orphaned waiter manually to prevent a continuation leak.
+                if Task.isCancelled {
+                    let removed = self.stateQueue.sync { () -> Bool in
+                        if let idx = self.waiters.firstIndex(where: { $0.id == waiterID }) {
+                            self.waiters.remove(at: idx)
+                            return true
+                        }
+                        return false
+                    }
+                    if removed {
+                        continuation.resume(throwing: CancellationError())
+                    }
+                    // If not removed, a concurrent onCancel or handleInputReport
+                    // already consumed it — they resumed, so we must not double-resume.
+                    return
+                }
+
+                // Send the report
+                let data = Data(bytes)
+                let result = data.withUnsafeBytes { rawBuf -> IOReturn in
+                    guard let ptr = rawBuf.baseAddress?.assumingMemoryBound(to: UInt8.self) else {
+                        return kIOReturnBadArgument
+                    }
+                    return IOHIDDeviceSetReport(
+                        device,
+                        kIOHIDReportTypeOutput,
+                        CFIndex(reportId.rawValue),
+                        ptr,
+                        data.count
+                    )
+                }
+
+                if result != kIOReturnSuccess {
+                    // Remove waiter and fail — but only if it hasn't been consumed by a response already
+                    let removed = self.stateQueue.sync { () -> Bool in
+                        if let idx = self.waiters.firstIndex(where: { $0.id == waiterID }) {
+                            self.waiters.remove(at: idx)
+                            return true
+                        }
+                        return false
+                    }
+
+                    if removed {
+                        debugLog("[USBTransport] SetReport failed: 0x\(String(format: "%08X", result)) for uid=\(targetDeviceUID ?? "any")")
+                        let error: HIDPPError
+                        if result == IOReturn(bitPattern: 0xE000_02CD) || result == IOReturn(bitPattern: 0xE000_02E2) {
+                            error = .exclusiveAccess
+                        } else {
+                            error = .transportError(String(format: "IOHIDDeviceSetReport failed: 0x%08X", result))
+                        }
+                        continuation.resume(throwing: error)
+                    }
+                    // If not removed, it was already consumed by a response handler — don't double-resume
+                }
             }
-
-            if result != kIOReturnSuccess {
-                // Remove waiter and fail — but only if it hasn't been consumed by a response already
-                let removed = self.stateQueue.sync { () -> Bool in
-                    if let idx = self.waiters.firstIndex(where: {
-                        $0.deviceIndex == deviceIndex && $0.featureIndex == featureIndex
-                            && $0.functionId == functionId && $0.softwareId == softwareId
-                    }) {
-                        self.waiters.remove(at: idx)
-                        return true
-                    }
-                    return false
+        } onCancel: {
+            // Task was cancelled (typically by sendWithTimeout). Clean up the zombie waiter
+            // to prevent it from stealing future responses with matching keys.
+            self.stateQueue.sync {
+                if let idx = self.waiters.firstIndex(where: { $0.id == waiterID }) {
+                    let waiter = self.waiters.remove(at: idx)
+                    waiter.continuation.resume(throwing: CancellationError())
                 }
-
-                if removed {
-                    debugLog("[USBTransport] SetReport failed: 0x\(String(format: "%08X", result)) for uid=\(targetDeviceUID ?? "any")")
-                    let error: HIDPPError
-                    if result == IOReturn(bitPattern: 0xE000_02CD) || result == IOReturn(bitPattern: 0xE000_02E2) {
-                        error = .exclusiveAccess
-                    } else {
-                        error = .transportError(String(format: "IOHIDDeviceSetReport failed: 0x%08X", result))
-                    }
-                    continuation.resume(throwing: error)
-                }
-                // If not removed, it was already consumed by a response handler — don't double-resume
             }
         }
 
@@ -687,17 +735,13 @@ final class USBTransport: HIDTransport, @unchecked Sendable {
                 debugLog("[USBTransport] MATCH -> waiter uid=\(waiter.targetDeviceUID ?? "any") dev=\(waiter.deviceIndex)")
                 waiter.continuation.resume(returning: response)
             } else {
-                // Forward unmatched packets to notification handler
-                let handler = self.notificationHandler
-                if handler != nil {
+                // Forward unmatched packets to notification handler.
+                // This callback fires on the main RunLoop (CFRunLoopGetMain),
+                // so we invoke the handler directly — no need to hop threads.
+                // The handler itself dispatches to @MainActor via Task if needed.
+                if let handler = self.notificationHandler {
                     let uid = senderUID ?? "unknown"
-                    let devIdx = response.deviceIndex
-                    let featIdx = response.featureIndex
-                    let funcId = response.functionId
-                    let params = response.params
-                    DispatchQueue.global().async {
-                        handler?(uid, devIdx, featIdx, funcId, params)
-                    }
+                    handler(uid, response.deviceIndex, response.featureIndex, response.functionId, response.params)
                 }
             }
         }

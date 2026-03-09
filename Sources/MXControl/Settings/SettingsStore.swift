@@ -10,6 +10,31 @@ enum SettingsStore {
     nonisolated(unsafe) private static let defaults = UserDefaults.standard
     private static let prefix = "mxcontrol"
 
+    // MARK: - Retry Helper
+
+    /// Retry an async operation for transient HID++ errors (timeout, busy, hardware).
+    /// Used during settings application on reconnect when the device may still be waking up.
+    private static func withRetry(
+        _ label: String,
+        maxAttempts: Int = 3,
+        operation: @Sendable () async throws -> Void
+    ) async throws {
+        var lastError: (any Error)?
+        for attempt in 1...max(1, maxAttempts) {
+            do {
+                try await operation()
+                return
+            } catch let error as HIDPPError where error.isTransient {
+                lastError = error
+                debugLog("[SettingsStore] \(label) transient error (attempt \(attempt)/\(maxAttempts)): \(error.localizedDescription)")
+                if attempt < maxAttempts {
+                    try await Task.sleep(for: .milliseconds(150 * attempt))
+                }
+            }
+        }
+        throw lastError ?? HIDPPError.transportError("All retry attempts exhausted for \(label)")
+    }
+
     // MARK: - Key Builder
 
     private static func key(_ deviceName: String, _ setting: String) -> String {
@@ -148,30 +173,73 @@ enum SettingsStore {
         return settings
     }
 
+    // MARK: - Save From Device
+
+    /// Save current settings from a MouseDevice directly.
+    @MainActor static func save(mouse: MouseDevice) {
+        let settings = MouseSettings(
+            dpi: mouse.currentDPI,
+            pointerSpeed: mouse.pointerSpeed,
+            smartShiftActive: mouse.smartShiftActive,
+            smartShiftTorque: mouse.smartShiftTorque,
+            smartShiftWheelMode: mouse.smartShiftWheelMode.rawValue,
+            hiResEnabled: mouse.hiResEnabled,
+            hiResInverted: mouse.hiResInverted,
+            thumbWheelInverted: mouse.thumbWheelInverted,
+            buttonRemaps: mouse.buttonRemaps.isEmpty ? nil : mouse.buttonRemaps,
+            gestureClickTimeLimit: mouse.gestureClickTimeLimit,
+            gestureDragThreshold: mouse.gestureDragThreshold
+        )
+        saveMouseSettings(settings, deviceName: mouse.name)
+    }
+
+    /// Save current settings from a KeyboardDevice directly.
+    @MainActor static func save(keyboard: KeyboardDevice) {
+        let settings = KeyboardSettings(
+            backlightEnabled: keyboard.backlightEnabled,
+            backlightLevel: keyboard.backlightLevel,
+            fnInverted: keyboard.fnInverted
+        )
+        saveKeyboardSettings(settings, deviceName: keyboard.name)
+    }
+
     // MARK: - Apply Saved Settings
 
     /// Apply saved mouse settings to a MouseDevice (on reconnect).
-    static func applyMouseSettings(to mouse: MouseDevice) async {
+    ///
+    /// Each setting is applied independently — a failure on one does not block others.
+    @MainActor static func applyMouseSettings(to mouse: MouseDevice) async {
         let saved = loadMouseSettings(deviceName: mouse.name)
+        var applied = 0
+        var failed = 0
 
         if let dpi = saved.dpi {
-            try? await mouse.setDPI(dpi)
+            do { try await withRetry("DPI") { try await mouse.setDPI(dpi) }; applied += 1 }
+            catch { failed += 1; logger.warning("[SettingsStore] Failed to restore DPI \(dpi): \(error.localizedDescription)") }
         }
         if let speed = saved.pointerSpeed, mouse.hasFeature(PointerSpeedFeature.featureId) {
-            try? await mouse.setPointerSpeed(speed)
+            do { try await withRetry("PointerSpeed") { try await mouse.setPointerSpeed(speed) }; applied += 1 }
+            catch { failed += 1; logger.warning("[SettingsStore] Failed to restore pointer speed \(speed): \(error.localizedDescription)") }
         }
         if let mode = saved.smartShiftWheelMode, let active = saved.smartShiftActive {
-            try? await mouse.setSmartShift(
-                wheelMode: SmartShiftFeature.WheelMode(rawValue: mode),
-                autoDisengage: active ? (saved.smartShiftTorque ?? 50) : 0,
-                torque: saved.smartShiftTorque
-            )
+            do {
+                try await withRetry("SmartShift") {
+                    try await mouse.setSmartShift(
+                        wheelMode: SmartShiftFeature.WheelMode(rawValue: mode),
+                        autoDisengage: active ? (saved.smartShiftTorque ?? 50) : 0,
+                        torque: saved.smartShiftTorque
+                    )
+                }
+                applied += 1
+            } catch { failed += 1; logger.warning("[SettingsStore] Failed to restore SmartShift: \(error.localizedDescription)") }
         }
         if let hiRes = saved.hiResEnabled, let inverted = saved.hiResInverted {
-            try? await mouse.setHiResScroll(hiRes: hiRes, inverted: inverted)
+            do { try await withRetry("HiResScroll") { try await mouse.setHiResScroll(hiRes: hiRes, inverted: inverted) }; applied += 1 }
+            catch { failed += 1; logger.warning("[SettingsStore] Failed to restore HiRes scroll: \(error.localizedDescription)") }
         }
         if let twInverted = saved.thumbWheelInverted, mouse.hasFeature(ThumbWheelFeature.featureId) {
-            try? await mouse.setThumbWheelInverted(twInverted)
+            do { try await withRetry("ThumbWheel") { try await mouse.setThumbWheelInverted(twInverted) }; applied += 1 }
+            catch { failed += 1; logger.warning("[SettingsStore] Failed to restore thumb wheel inversion: \(error.localizedDescription)") }
         }
         if let remaps = saved.buttonRemaps {
             let thumbCID = SpecialKeysFeature.KnownCID.gestureButton.rawValue  // 0x00C3
@@ -180,7 +248,8 @@ enum SettingsStore {
                 guard cid != thumbCID else { continue }
                 // Skip self-remaps (no-ops that could clear flags)
                 guard cid != target else { continue }
-                try? await mouse.remapButton(controlId: cid, to: target)
+                do { try await withRetry("ButtonRemap(\(cid))") { try await mouse.remapButton(controlId: cid, to: target) }; applied += 1 }
+                catch { failed += 1; logger.warning("[SettingsStore] Failed to restore button remap CID=\(cid)->CID=\(target): \(error.localizedDescription)") }
             }
         }
 
@@ -191,20 +260,34 @@ enum SettingsStore {
             mouse.gestureDragThreshold = dt
         }
 
-        logger.info("[SettingsStore] Applied saved mouse settings for \(mouse.name)")
+        if failed == 0 {
+            logger.info("[SettingsStore] Applied \(applied) saved mouse settings for \(mouse.name)")
+        } else {
+            logger.warning("[SettingsStore] Applied \(applied) settings, \(failed) failed for \(mouse.name)")
+        }
     }
 
     /// Apply saved keyboard settings to a KeyboardDevice (on reconnect).
-    static func applyKeyboardSettings(to keyboard: KeyboardDevice) async {
+    ///
+    /// Each setting is applied independently — a failure on one does not block others.
+    @MainActor static func applyKeyboardSettings(to keyboard: KeyboardDevice) async {
         let saved = loadKeyboardSettings(deviceName: keyboard.name)
+        var applied = 0
+        var failed = 0
 
         if let enabled = saved.backlightEnabled, let level = saved.backlightLevel {
-            try? await keyboard.setBacklight(enabled: enabled, level: level)
+            do { try await withRetry("Backlight") { try await keyboard.setBacklight(enabled: enabled, level: level) }; applied += 1 }
+            catch { failed += 1; logger.warning("[SettingsStore] Failed to restore backlight: \(error.localizedDescription)") }
         }
         if let fnInv = saved.fnInverted {
-            try? await keyboard.setFnInversion(fnInv)
+            do { try await withRetry("FnInversion") { try await keyboard.setFnInversion(fnInv) }; applied += 1 }
+            catch { failed += 1; logger.warning("[SettingsStore] Failed to restore Fn inversion: \(error.localizedDescription)") }
         }
 
-        logger.info("[SettingsStore] Applied saved keyboard settings for \(keyboard.name)")
+        if failed == 0 {
+            logger.info("[SettingsStore] Applied \(applied) saved keyboard settings for \(keyboard.name)")
+        } else {
+            logger.warning("[SettingsStore] Applied \(applied) settings, \(failed) failed for \(keyboard.name)")
+        }
     }
 }

@@ -44,4 +44,39 @@ extension HIDTransport {
             params: []
         )
     }
+
+    /// Send a HID++ request with automatic retry for transient errors (.timeout, .busy, .hardwareError).
+    ///
+    /// Non-transient errors are thrown immediately without retry. Retries use linear backoff
+    /// (100ms * attempt number) to give the device time to become available.
+    func sendWithRetry(
+        deviceIndex: UInt8,
+        featureIndex: UInt8,
+        functionId: UInt8,
+        softwareId: UInt8,
+        params: [UInt8] = [],
+        maxAttempts: Int = 3,
+        retryDelay: Duration = .milliseconds(100)
+    ) async throws -> HIDPPResponse {
+        let attempts = max(1, maxAttempts)
+        var lastError: (any Error)?
+        for attempt in 1...attempts {
+            do {
+                return try await send(
+                    deviceIndex: deviceIndex,
+                    featureIndex: featureIndex,
+                    functionId: functionId,
+                    softwareId: softwareId,
+                    params: params
+                )
+            } catch let error as HIDPPError where error.isTransient {
+                lastError = error
+                debugLog("[HIDTransport] Transient error on attempt \(attempt)/\(attempts): \(error.localizedDescription)")
+                if attempt < attempts {
+                    try await Task.sleep(for: retryDelay * attempt)
+                }
+            }
+        }
+        throw lastError ?? HIDPPError.transportError("All \(attempts) retry attempts exhausted")
+    }
 }

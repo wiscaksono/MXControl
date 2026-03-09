@@ -51,32 +51,38 @@ final class KeyboardDevice: LogiDevice, @unchecked Sendable {
 
     /// Read all keyboard-specific features from the device.
     /// Call after base `initialize()` completes.
+    ///
+    /// Each feature is loaded independently so a transient failure on one
+    /// does not prevent other features from loading.
     func loadKeyboardFeatures() async {
-        do {
-            // Battery (0x1004)
-            if hasFeature(BatteryFeature.featureId) {
-                try await loadBattery()
-            }
+        var errors: [String] = []
 
-            // Backlight (0x1983 or 0x1982)
-            try await loadBacklight()
+        // Battery (0x1004)
+        if hasFeature(BatteryFeature.featureId) {
+            do { try await loadBattery() }
+            catch { errors.append("Battery: \(error.localizedDescription)"); debugLog("[KeyboardDevice] Battery load failed: \(error)") }
+        }
 
-            // Fn Inversion (0x40A3 / 0x40A2 / 0x40A0)
-            try await loadFnInversion()
+        // Backlight (0x1983 or 0x1982)
+        do { try await loadBacklight() }
+        catch { errors.append("Backlight: \(error.localizedDescription)"); debugLog("[KeyboardDevice] Backlight load failed: \(error)") }
 
-            // Host info (0x1814 + 0x1815)
-            if hasFeature(ChangeHostFeature.featureId) {
-                try await loadHostInfo()
-            }
+        // Fn Inversion (0x40A3 / 0x40A2 / 0x40A0)
+        do { try await loadFnInversion() }
+        catch { errors.append("FnInversion: \(error.localizedDescription)"); debugLog("[KeyboardDevice] FnInversion load failed: \(error)") }
 
-            isFeaturesLoaded = true
+        // Host info (0x1814 + 0x1815)
+        if hasFeature(ChangeHostFeature.featureId) {
+            do { try await loadHostInfo() }
+            catch { errors.append("HostInfo: \(error.localizedDescription)"); debugLog("[KeyboardDevice] HostInfo load failed: \(error)") }
+        }
+
+        isFeaturesLoaded = true
+        if errors.isEmpty {
             logger.info("[KeyboardDevice] All features loaded for \(self.name)")
-
-        } catch {
-            featureLoadError = error.localizedDescription
-            logger.error("[KeyboardDevice] Feature load error: \(error.localizedDescription)")
-            // Still mark as loaded so UI doesn't hang on spinner
-            isFeaturesLoaded = true
+        } else {
+            featureLoadError = errors.joined(separator: "; ")
+            logger.warning("[KeyboardDevice] Loaded with \(errors.count) error(s) for \(self.name): \(errors.joined(separator: "; "))")
         }
     }
 

@@ -221,7 +221,7 @@ final class DeviceManager {
 
                 logger.info("[DeviceManager] Device found at index \(index), initializing...")
 
-                // First pass: discover identity using a temporary LogiDevice
+                // Discover identity and create typed device (mouse/keyboard)
                 let probe = LogiDevice(deviceIndex: index, transport: adapter)
                 try await probe.initialize()
 
@@ -231,29 +231,7 @@ final class DeviceManager {
                 // Check if this device is already connected via BLE — if so, remove the BLE version
                 removeDuplicateBLEDevice(name: probe.name)
 
-                // Promote to typed device based on discovered type
-                let device: LogiDevice
-                switch probe.deviceType {
-                case .mouse:
-                    let mouse = MouseDevice(deviceIndex: index, transport: adapter)
-                    try await mouse.initialize()
-                    await mouse.loadMouseFeatures()
-                    await SettingsStore.applyMouseSettings(to: mouse)
-                    device = mouse
-                    logger.info("[DeviceManager] Promoted index \(index) to MouseDevice")
-
-                case .keyboard:
-                    let keyboard = KeyboardDevice(deviceIndex: index, transport: adapter)
-                    try await keyboard.initialize()
-                    await keyboard.loadKeyboardFeatures()
-                    await SettingsStore.applyKeyboardSettings(to: keyboard)
-                    device = keyboard
-                    logger.info("[DeviceManager] Promoted index \(index) to KeyboardDevice")
-
-                default:
-                    device = probe
-                    logger.info("[DeviceManager] Index \(index) is unknown type, keeping as LogiDevice")
-                }
+                let device = await createTypedDevice(from: probe, adapter: adapter)
 
                 discovered.append(device)
                 uidToDeviceId["\(receiverUID):\(index)"] = device.id
@@ -291,6 +269,37 @@ final class DeviceManager {
             startBatteryRefresh()
         } else {
             logger.warning("[DeviceManager] No devices found on receiver")
+        }
+    }
+
+    // MARK: - Typed Device Creation
+
+    /// Create a typed device (MouseDevice/KeyboardDevice) from a probe, reusing its
+    /// discovered identity and feature cache to avoid redundant HID++ round-trips.
+    private func createTypedDevice(
+        from probe: LogiDevice,
+        adapter: DeviceTransportAdapter
+    ) async -> LogiDevice {
+        switch probe.deviceType {
+        case .mouse:
+            let mouse = MouseDevice(deviceIndex: probe.deviceIndex, transport: adapter)
+            await mouse.transferIdentity(from: probe)
+            await mouse.loadMouseFeatures()
+            await SettingsStore.applyMouseSettings(to: mouse)
+            logger.info("[DeviceManager] Promoted \(probe.name) to MouseDevice")
+            return mouse
+
+        case .keyboard:
+            let keyboard = KeyboardDevice(deviceIndex: probe.deviceIndex, transport: adapter)
+            await keyboard.transferIdentity(from: probe)
+            await keyboard.loadKeyboardFeatures()
+            await SettingsStore.applyKeyboardSettings(to: keyboard)
+            logger.info("[DeviceManager] Promoted \(probe.name) to KeyboardDevice")
+            return keyboard
+
+        default:
+            logger.info("[DeviceManager] \(probe.name) is unknown type, keeping as LogiDevice")
+            return probe
         }
     }
 
@@ -347,7 +356,7 @@ final class DeviceManager {
             debugLog("[DeviceManager] BLE IOKit: ping succeeded for \(info.name)!")
             logger.info("[DeviceManager] BLE device \(info.name, privacy: .public) responded to ping")
 
-            // First pass: discover identity
+            // Discover identity
             let probe = LogiDevice(deviceIndex: deviceIndex, transport: adapter)
             try await probe.initialize()
 
@@ -357,29 +366,7 @@ final class DeviceManager {
                 return
             }
 
-            // Promote to typed device
-            let device: LogiDevice
-            switch probe.deviceType {
-            case .mouse:
-                let mouse = MouseDevice(deviceIndex: deviceIndex, transport: adapter)
-                try await mouse.initialize()
-                await mouse.loadMouseFeatures()
-                await SettingsStore.applyMouseSettings(to: mouse)
-                device = mouse
-                logger.info("[DeviceManager] BLE: Promoted \(info.name, privacy: .public) to MouseDevice")
-
-            case .keyboard:
-                let keyboard = KeyboardDevice(deviceIndex: deviceIndex, transport: adapter)
-                try await keyboard.initialize()
-                await keyboard.loadKeyboardFeatures()
-                await SettingsStore.applyKeyboardSettings(to: keyboard)
-                device = keyboard
-                logger.info("[DeviceManager] BLE: Promoted \(info.name, privacy: .public) to KeyboardDevice")
-
-            default:
-                device = probe
-                logger.info("[DeviceManager] BLE: \(info.name, privacy: .public) is unknown type, keeping as LogiDevice")
-            }
+            let device = await createTypedDevice(from: probe, adapter: adapter)
 
             devices.append(device)
             deviceTransportType[device.id] = .ble
@@ -651,7 +638,10 @@ final class DeviceManager {
             debugLog("[DeviceManager] Notification: sender=\(senderUID) dev=\(deviceIndex) feat=\(String(format: "0x%02X", featureIndex)) func=\(functionId)")
             let key = "\(senderUID):\(deviceIndex)"
             if let mouse = mouseMap[key] {
-                mouse.handleNotification(featureIndex: featureIndex, functionId: functionId, params: params)
+                // Dispatch to MainActor since MouseDevice is @MainActor isolated
+                Task { @MainActor in
+                    mouse.handleNotification(featureIndex: featureIndex, functionId: functionId, params: params)
+                }
             }
         }
 
@@ -716,53 +706,4 @@ final class DeviceManager {
         deviceTransportType[device.id]
     }
 
-    // MARK: - Save Settings
-
-    /// Save current settings for a mouse device.
-    func saveMouseSettings(_ mouse: MouseDevice) {
-        let settings = SettingsStore.MouseSettings(
-            dpi: mouse.currentDPI,
-            pointerSpeed: mouse.pointerSpeed,
-            smartShiftActive: mouse.smartShiftActive,
-            smartShiftTorque: mouse.smartShiftTorque,
-            smartShiftWheelMode: mouse.smartShiftWheelMode.rawValue,
-            hiResEnabled: mouse.hiResEnabled,
-            hiResInverted: mouse.hiResInverted,
-            thumbWheelInverted: mouse.thumbWheelInverted,
-            buttonRemaps: mouse.buttonRemaps.isEmpty ? nil : mouse.buttonRemaps,
-            gestureClickTimeLimit: mouse.gestureClickTimeLimit,
-            gestureDragThreshold: mouse.gestureDragThreshold
-        )
-        SettingsStore.saveMouseSettings(settings, deviceName: mouse.name)
-    }
-
-    /// Save current settings for a keyboard device.
-    func saveKeyboardSettings(_ keyboard: KeyboardDevice) {
-        let settings = SettingsStore.KeyboardSettings(
-            backlightEnabled: keyboard.backlightEnabled,
-            backlightLevel: keyboard.backlightLevel,
-            fnInverted: keyboard.fnInverted
-        )
-        SettingsStore.saveKeyboardSettings(settings, deviceName: keyboard.name)
-    }
-}
-
-// MARK: - HIDPPError Equatable
-
-extension HIDPPError: Equatable {
-    static func == (lhs: HIDPPError, rhs: HIDPPError) -> Bool {
-        switch (lhs, rhs) {
-        case (.transportNotOpen, .transportNotOpen): return true
-        case (.tccDenied, .tccDenied): return true
-        case (.exclusiveAccess, .exclusiveAccess): return true
-        case (.timeout, .timeout): return true
-        case (.deviceNotFound, .deviceNotFound): return true
-        case (.invalidResponse, .invalidResponse): return true
-        case (.transportError(let a), .transportError(let b)): return a == b
-        case (.featureNotSupported(let a), .featureNotSupported(let b)): return a == b
-        case (.unknownReportId(let a), .unknownReportId(let b)): return a == b
-        case (.hidppError(let c1, let f1), .hidppError(let c2, let f2)): return c1 == c2 && f1 == f2
-        default: return false
-        }
-    }
 }

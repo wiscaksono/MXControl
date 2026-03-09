@@ -25,11 +25,20 @@ final class GestureEngine: @unchecked Sendable {
 
     /// Minimum hold time (seconds) before drag detection activates.
     /// Releases within this window are ALWAYS treated as clicks.
-    var clickTimeLimit: TimeInterval = 0.20
+    private(set) var clickTimeLimit: TimeInterval = 0.20
 
     /// Horizontal drag distance (raw HID units) to trigger workspace switch.
     /// Only checked after `clickTimeLimit` has elapsed.
-    var dragThreshold: Int = 200
+    private(set) var dragThreshold: Int = 200
+
+    /// Thread-safe configuration update. Acquires the lock to ensure no
+    /// in-flight gesture processing reads partially-updated config.
+    func updateConfig(clickTimeLimit: TimeInterval? = nil, dragThreshold: Int? = nil) {
+        lock.lock()
+        defer { lock.unlock() }
+        if let ct = clickTimeLimit { self.clickTimeLimit = ct }
+        if let dt = dragThreshold { self.dragThreshold = dt }
+    }
 
     // MARK: - State
 

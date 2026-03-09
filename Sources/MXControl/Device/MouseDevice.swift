@@ -62,11 +62,11 @@ final class MouseDevice: LogiDevice, @unchecked Sendable {
 
     /// Minimum hold time (seconds) before drag detection starts. Releases within = always click.
     var gestureClickTimeLimit: Double = 0.20 {
-        didSet { gestureEngine?.clickTimeLimit = gestureClickTimeLimit }
+        didSet { gestureEngine?.updateConfig(clickTimeLimit: gestureClickTimeLimit) }
     }
     /// Raw HID units of horizontal movement needed to trigger workspace switch.
     var gestureDragThreshold: Int = 200 {
-        didSet { gestureEngine?.dragThreshold = gestureDragThreshold }
+        didSet { gestureEngine?.updateConfig(dragThreshold: gestureDragThreshold) }
     }
 
     // MARK: - Host Info
@@ -84,55 +84,66 @@ final class MouseDevice: LogiDevice, @unchecked Sendable {
 
     /// Read all mouse-specific features from the device.
     /// Call after base `initialize()` completes.
+    ///
+    /// Each feature is loaded independently so a transient failure on one
+    /// (e.g., battery timeout) does not prevent other features from loading.
     func loadMouseFeatures() async {
-        do {
-            // Battery (0x1004)
-            if hasFeature(BatteryFeature.featureId) {
-                try await loadBattery()
-            }
+        var errors: [String] = []
 
-            // DPI (0x2201)
-            if hasFeature(AdjustableDPIFeature.featureId) {
-                try await loadDPI()
-            }
+        // Battery (0x1004)
+        if hasFeature(BatteryFeature.featureId) {
+            do { try await loadBattery() }
+            catch { errors.append("Battery: \(error.localizedDescription)"); debugLog("[MouseDevice] Battery load failed: \(error)") }
+        }
 
-            // SmartShift (0x2111)
-            if hasFeature(SmartShiftFeature.featureId) {
-                try await loadSmartShift()
-            }
+        // DPI (0x2201)
+        if hasFeature(AdjustableDPIFeature.featureId) {
+            do { try await loadDPI() }
+            catch { errors.append("DPI: \(error.localizedDescription)"); debugLog("[MouseDevice] DPI load failed: \(error)") }
+        }
 
-            // Hi-Res Scroll (0x2121)
-            if hasFeature(HiResScrollFeature.featureId) {
-                try await loadHiResScroll()
-            }
+        // SmartShift (0x2111)
+        if hasFeature(SmartShiftFeature.featureId) {
+            do { try await loadSmartShift() }
+            catch { errors.append("SmartShift: \(error.localizedDescription)"); debugLog("[MouseDevice] SmartShift load failed: \(error)") }
+        }
 
-            // Pointer Speed (0x2205)
-            if hasFeature(PointerSpeedFeature.featureId) {
-                try await loadPointerSpeed()
-            }
+        // Hi-Res Scroll (0x2121)
+        if hasFeature(HiResScrollFeature.featureId) {
+            do { try await loadHiResScroll() }
+            catch { errors.append("HiResScroll: \(error.localizedDescription)"); debugLog("[MouseDevice] HiResScroll load failed: \(error)") }
+        }
 
-            // Thumb Wheel (0x2150)
-            if hasFeature(ThumbWheelFeature.featureId) {
-                try await loadThumbWheel()
-            }
+        // Pointer Speed (0x2205)
+        if hasFeature(PointerSpeedFeature.featureId) {
+            do { try await loadPointerSpeed() }
+            catch { errors.append("PointerSpeed: \(error.localizedDescription)"); debugLog("[MouseDevice] PointerSpeed load failed: \(error)") }
+        }
 
-            // Buttons (0x1B04)
-            if hasFeature(SpecialKeysFeature.featureId) {
-                try await loadButtons()
-            }
+        // Thumb Wheel (0x2150)
+        if hasFeature(ThumbWheelFeature.featureId) {
+            do { try await loadThumbWheel() }
+            catch { errors.append("ThumbWheel: \(error.localizedDescription)"); debugLog("[MouseDevice] ThumbWheel load failed: \(error)") }
+        }
 
-            // Host info (0x1814 + 0x1815)
-            if hasFeature(ChangeHostFeature.featureId) {
-                try await loadHostInfo()
-            }
+        // Buttons (0x1B04)
+        if hasFeature(SpecialKeysFeature.featureId) {
+            do { try await loadButtons() }
+            catch { errors.append("Buttons: \(error.localizedDescription)"); debugLog("[MouseDevice] Buttons load failed: \(error)") }
+        }
 
-            isFeaturesLoaded = true
+        // Host info (0x1814 + 0x1815)
+        if hasFeature(ChangeHostFeature.featureId) {
+            do { try await loadHostInfo() }
+            catch { errors.append("HostInfo: \(error.localizedDescription)"); debugLog("[MouseDevice] HostInfo load failed: \(error)") }
+        }
+
+        isFeaturesLoaded = true
+        if errors.isEmpty {
             logger.info("[MouseDevice] All features loaded for \(self.name)")
-
-        } catch {
-            featureLoadError = error.localizedDescription
-            logger.error("[MouseDevice] Feature load error: \(error.localizedDescription)")
-            isFeaturesLoaded = true
+        } else {
+            featureLoadError = errors.joined(separator: "; ")
+            logger.warning("[MouseDevice] Loaded with \(errors.count) error(s) for \(self.name): \(errors.joined(separator: "; "))")
         }
     }
 
@@ -366,8 +377,7 @@ final class MouseDevice: LogiDevice, @unchecked Sendable {
 
             // Create the gesture engine and sync current settings
             let engine = GestureEngine(thumbCID: thumbCID)
-            engine.clickTimeLimit = gestureClickTimeLimit
-            engine.dragThreshold = gestureDragThreshold
+            engine.updateConfig(clickTimeLimit: gestureClickTimeLimit, dragThreshold: gestureDragThreshold)
             gestureEngine = engine
             logger.info("[MouseDevice] Thumb button diverted (rawXY=\(hasRawXY) persist=\(canPersist)), gesture engine active")
             debugLog("[MouseDevice] Thumb button diverted (rawXY=\(hasRawXY) persist=\(canPersist)), gesture engine active")

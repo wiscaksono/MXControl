@@ -1,5 +1,6 @@
 import AppKit
 import os
+import ServiceManagement
 import SwiftUI
 
 /// Global logger for MXControl.
@@ -40,6 +41,7 @@ struct MXControlApp: App {
 struct MenuBarView: View {
     @Environment(DeviceManager.self) private var deviceManager
     @State private var selectedDevice: LogiDevice?
+    @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
 
     var body: some View {
         VStack(spacing: 0) {
@@ -51,6 +53,22 @@ struct MenuBarView: View {
         }
         .frame(width: 300)
         .animation(.easeInOut(duration: 0.15), value: selectedDevice?.id)
+        .onAppear {
+            launchAtLogin = SMAppService.mainApp.status == .enabled
+        }
+        .onChange(of: launchAtLogin) { _, newValue in
+            do {
+                if newValue {
+                    try SMAppService.mainApp.register()
+                } else {
+                    try SMAppService.mainApp.unregister()
+                }
+            } catch {
+                logger.warning("[App] Launch at login toggle failed: \(error.localizedDescription)")
+                // Revert toggle on failure
+                launchAtLogin = SMAppService.mainApp.status == .enabled
+            }
+        }
     }
 
     // MARK: - Header
@@ -116,6 +134,13 @@ struct MenuBarView: View {
                         .controlSize(.small)
                         .scaleEffect(0.7)
                 }
+
+                Toggle(isOn: $launchAtLogin) {
+                    EmptyView()
+                }
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+                .help("Launch at Login")
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)

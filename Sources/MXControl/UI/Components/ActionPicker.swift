@@ -88,7 +88,9 @@ struct ActionPicker: View {
             Text(buttonName)
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
-                .frame(width: 48, alignment: .leading)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(minWidth: 64, maxWidth: 110, alignment: .leading)
 
             Spacer()
 
@@ -100,7 +102,7 @@ struct ActionPicker: View {
             }
             .labelsHidden()
             .pickerStyle(.menu)
-            .frame(maxWidth: 160)
+            .frame(maxWidth: 150)
             .onChange(of: currentAction) { _, newAction in
                 onChanged?(newAction)
             }

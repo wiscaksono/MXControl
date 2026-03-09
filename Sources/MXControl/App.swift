@@ -51,7 +51,7 @@ struct MenuBarView: View {
             Divider()
             navFooter
         }
-        .frame(width: 300)
+        .frame(width: 320)
         .animation(.easeInOut(duration: 0.15), value: selectedDevice?.id)
         .onAppear {
             launchAtLogin = SMAppService.mainApp.status == .enabled
@@ -280,20 +280,11 @@ struct DeviceRowView: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            // Device icon with transport overlay
-            ZStack(alignment: .bottomTrailing) {
-                Image(systemName: deviceIcon)
-                    .font(.system(size: 15))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 22)
-
-                if transportType == .ble {
-                    Image(systemName: "bolt.horizontal.fill")
-                        .font(.system(size: 6))
-                        .foregroundStyle(.blue)
-                        .offset(x: 3, y: 2)
-                }
-            }
+            // Device icon (transport is communicated by the badge, no overlay needed)
+            Image(systemName: deviceIcon)
+                .font(.system(size: 15))
+                .foregroundStyle(.secondary)
+                .frame(width: 22)
 
             Text(device.name)
                 .font(.system(size: 13, weight: .medium))

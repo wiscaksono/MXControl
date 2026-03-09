@@ -119,7 +119,7 @@ struct MouseDetailView: View {
             Text("Battery")
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
-                .frame(width: 48, alignment: .leading)
+                .frame(width: 60, alignment: .leading)
 
             Spacer()
 
@@ -191,7 +191,7 @@ struct MouseDetailView: View {
                 Text("Wheel")
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
-                    .frame(width: 48, alignment: .leading)
+                    .frame(width: 60, alignment: .leading)
 
                 Spacer()
 
@@ -256,7 +256,8 @@ struct MouseDetailView: View {
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(.tertiary)
                 .textCase(.uppercase)
-                .padding(.top, 6)
+                .padding(.top, 10)
+                .padding(.bottom, 2)
 
             SliderRow(
                 label: "Click",
@@ -290,7 +291,8 @@ struct MouseDetailView: View {
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(.tertiary)
                 .textCase(.uppercase)
-                .padding(.top, 6)
+                .padding(.top, 10)
+                .padding(.bottom, 2)
 
             ForEach(mouse.buttons.filter { $0.isRemappable }) { button in
                 ButtonRemapRow(
@@ -311,7 +313,8 @@ struct MouseDetailView: View {
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(.tertiary)
                 .textCase(.uppercase)
-                .padding(.top, 6)
+                .padding(.top, 10)
+                .padding(.bottom, 2)
 
             ForEach(mouse.hosts) { host in
                 row {
@@ -434,7 +437,7 @@ struct KeyboardDetailView: View {
             Text("Battery")
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
-                .frame(width: 48, alignment: .leading)
+                .frame(width: 60, alignment: .leading)
 
             Spacer()
 
@@ -528,7 +531,8 @@ struct KeyboardDetailView: View {
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(.tertiary)
                 .textCase(.uppercase)
-                .padding(.top, 6)
+                .padding(.top, 10)
+                .padding(.bottom, 2)
 
             ForEach(keyboard.hosts) { host in
                 row {

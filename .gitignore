@@ -12,6 +12,7 @@ DerivedData/
 # macOS
 .DS_Store
 *.app
+*.dmg
 
 # Debug logs
 /tmp/mxcontrol_*.log

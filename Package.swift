@@ -16,5 +16,10 @@ let package = Package(
                 .linkedFramework("CoreBluetooth"),
             ]
         ),
+        .testTarget(
+            name: "MXControlTests",
+            dependencies: ["MXControl"],
+            path: "Tests/MXControlTests"
+        ),
     ]
 )

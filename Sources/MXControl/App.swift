@@ -28,6 +28,7 @@ struct MXControlApp: App {
 
     init() {
         AppVisibilityPreferences.registerDefaults()
+        BatteryNotifier.setup()
     }
 
     var body: some Scene {

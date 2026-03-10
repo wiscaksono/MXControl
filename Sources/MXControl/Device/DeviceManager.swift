@@ -177,6 +177,7 @@ final class DeviceManager {
         initializingBLEUIDs.removeAll()
         initializedBLEUIDs.removeAll()
         failedBLEUIDs.removeAll()
+        BatteryNotifier.reset()
         isScanning = false
         statusMessage = "Stopped"
     }
@@ -684,8 +685,18 @@ final class DeviceManager {
                 for device in self.devices {
                     if let mouse = device as? MouseDevice {
                         await mouse.refreshBattery()
+                        BatteryNotifier.checkAndNotify(
+                            deviceName: mouse.name,
+                            level: mouse.batteryLevel,
+                            isCharging: mouse.batteryCharging
+                        )
                     } else if let keyboard = device as? KeyboardDevice {
                         await keyboard.refreshBattery()
+                        BatteryNotifier.checkAndNotify(
+                            deviceName: keyboard.name,
+                            level: keyboard.batteryLevel,
+                            isCharging: keyboard.batteryCharging
+                        )
                     }
                 }
                 logger.debug("[DeviceManager] Battery refresh complete")

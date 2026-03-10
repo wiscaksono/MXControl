@@ -8,7 +8,8 @@ let logger = Logger(subsystem: "com.mxcontrol.app", category: "general")
 
 @main
 struct MXControlApp: App {
-    @State private var deviceManager = DeviceManager()
+    @NSApplicationDelegateAdaptor(AppVisibilityController.self) private var appVisibilityController
+    @AppStorage(AppVisibilityPreferences.hideFromDockKey) private var hideFromDock = AppVisibilityPreferences.defaultHideFromDock
 
     /// Menu bar icon loaded from bundle Resources as a template image.
     private static let menuBarIcon: NSImage = {
@@ -25,29 +26,59 @@ struct MXControlApp: App {
         return img
     }()
 
+    init() {
+        AppVisibilityPreferences.registerDefaults()
+    }
+
     var body: some Scene {
-        MenuBarExtra {
+        MenuBarExtra(isInserted: menuBarInsertion) {
             MenuBarView()
-                .environment(deviceManager)
+                .environment(AppRuntime.shared.deviceManager)
         } label: {
             Image(nsImage: Self.menuBarIcon)
         }
         .menuBarExtraStyle(.window)
+    }
+
+    private var menuBarInsertion: Binding<Bool> {
+        Binding(
+            get: { !hideFromDock },
+            set: { hideFromDock = !$0 }
+        )
     }
 }
 
 // MARK: - Menu Bar View
 
 struct MenuBarView: View {
-    @Environment(DeviceManager.self) private var deviceManager
-    @State private var selectedDevice: LogiDevice?
-    @State private var selectedBLEDeviceId: UUID?
-    @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
+    private enum MenuDestination: Equatable {
+        case root
+        case device(UUID)
+        case ble(UUID)
+        case general
+    }
 
-    /// Live BLEDeviceInfo derived from the device manager's array (not a stale copy).
-    private var selectedBLEDevice: BLEDeviceInfo? {
-        guard let id = selectedBLEDeviceId else { return nil }
+    @Environment(DeviceManager.self) private var deviceManager
+    @State private var destination: MenuDestination = .root
+    @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
+    @AppStorage(AppVisibilityPreferences.hideFromDockKey) private var hideFromDock = AppVisibilityPreferences.defaultHideFromDock
+
+    private var activeDevice: LogiDevice? {
+        guard case .device(let id) = destination else { return nil }
+        return deviceManager.devices.first { $0.id == id }
+    }
+
+    private var activeBLEDevice: BLEDeviceInfo? {
+        guard case .ble(let id) = destination else { return nil }
         return deviceManager.bleDevices.first { $0.peripheralId == id }
+    }
+
+    private var showsDetailActions: Bool {
+        activeDevice != nil || activeBLEDevice != nil
+    }
+
+    private var footerActionTitle: String {
+        showsDetailActions ? "Refresh" : "Rescan"
     }
 
     /// Header icon loaded from bundle Resources as a template image.
@@ -73,8 +104,7 @@ struct MenuBarView: View {
             navFooter
         }
         .frame(width: 320)
-        .animation(.easeInOut(duration: 0.15), value: selectedDevice?.id)
-        .animation(.easeInOut(duration: 0.15), value: selectedBLEDeviceId)
+        .animation(.easeInOut(duration: 0.15), value: destination)
         .onAppear {
             launchAtLogin = SMAppService.mainApp.status == .enabled
         }
@@ -92,13 +122,13 @@ struct MenuBarView: View {
             }
         }
         .onChange(of: deviceManager.devices.map(\.id)) { _, currentIds in
-            if let selected = selectedDevice, !currentIds.contains(selected.id) {
-                selectedDevice = nil
+            if case .device(let id) = destination, !currentIds.contains(id) {
+                destination = .root
             }
         }
         .onChange(of: deviceManager.bleDevices.map(\.peripheralId)) { _, currentIds in
-            if let id = selectedBLEDeviceId, !currentIds.contains(id) {
-                selectedBLEDeviceId = nil
+            if case .ble(let id) = destination, !currentIds.contains(id) {
+                destination = .root
             }
         }
     }
@@ -107,112 +137,14 @@ struct MenuBarView: View {
 
     @ViewBuilder
     private var navHeader: some View {
-        if let device = selectedDevice {
-            // Detail mode: back button + device name
-            HStack(spacing: 6) {
-                Button {
-                    selectedDevice = nil
-                } label: {
-                    HStack(spacing: 3) {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 11, weight: .semibold))
-                        Text("Back")
-                            .font(.system(size: 12))
-                    }
-                    .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-
-                Spacer()
-
-                Image(systemName: iconForDevice(device))
-                    .font(.system(size: 13))
-                    .foregroundStyle(.secondary)
-
-                Text(device.name)
-                    .font(.system(size: 13, weight: .medium))
-                    .lineLimit(1)
-
-                if let transport = deviceManager.transportType(for: device) {
-                    Text(transport.rawValue)
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundStyle(transport == .ble ? .blue : .secondary)
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 1)
-                        .background(
-                            RoundedRectangle(cornerRadius: 3)
-                                .fill(transport == .ble
-                                    ? Color.blue.opacity(0.12)
-                                    : Color.secondary.opacity(0.12))
-                        )
-                }
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-        } else if let bleDevice = selectedBLEDevice {
-            // BLE detail mode: back button + device name
-            HStack(spacing: 6) {
-                Button {
-                    selectedBLEDeviceId = nil
-                } label: {
-                    HStack(spacing: 3) {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 11, weight: .semibold))
-                        Text("Back")
-                            .font(.system(size: 12))
-                    }
-                    .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-
-                Spacer()
-
-                Image(systemName: iconForBLEDevice(bleDevice))
-                    .font(.system(size: 13))
-                    .foregroundStyle(.secondary)
-
-                Text(bleDevice.name)
-                    .font(.system(size: 13, weight: .medium))
-                    .lineLimit(1)
-
-                Text("BLE")
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundStyle(.blue)
-                    .padding(.horizontal, 4)
-                    .padding(.vertical, 1)
-                    .background(
-                        RoundedRectangle(cornerRadius: 3)
-                            .fill(Color.blue.opacity(0.12))
-                    )
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+        if let device = activeDevice {
+            deviceHeader(for: device)
+        } else if let bleDevice = activeBLEDevice {
+            bleHeader(for: bleDevice)
+        } else if destination == .general {
+            generalHeader
         } else {
-            // List mode: app title
-            HStack(spacing: 6) {
-                Image(nsImage: Self.headerIcon)
-                    .foregroundStyle(.secondary)
-
-                Text("MXControl")
-                    .font(.system(size: 13, weight: .semibold))
-
-                Spacer()
-
-                if deviceManager.isScanning {
-                    ProgressView()
-                        .controlSize(.small)
-                        .scaleEffect(0.7)
-                }
-
-                Toggle(isOn: $launchAtLogin) {
-                    EmptyView()
-                }
-                .toggleStyle(.switch)
-                .controlSize(.mini)
-                .help("Launch at Login")
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            rootHeader
         }
     }
 
@@ -220,10 +152,15 @@ struct MenuBarView: View {
 
     @ViewBuilder
     private var navContent: some View {
-        if let device = selectedDevice {
+        if let device = activeDevice {
             DeviceDetailView(device: device)
-        } else if let bleDevice = selectedBLEDevice {
+        } else if let bleDevice = activeBLEDevice {
             BLEDeviceDetailView(info: bleDevice)
+        } else if destination == .general {
+            GeneralSettingsView(
+                launchAtLogin: $launchAtLogin,
+                hideAppUntilReopened: $hideFromDock
+            )
         } else {
             deviceListContent
         }
@@ -322,7 +259,7 @@ struct MenuBarView: View {
                         device: device,
                         transportType: deviceManager.transportType(for: device)
                     ) {
-                        selectedDevice = device
+                        destination = .device(device.id)
                     }
                 }
 
@@ -333,7 +270,7 @@ struct MenuBarView: View {
                             .padding(.horizontal, 12)
                     }
                     BLEDeviceRowView(info: bleDevice) {
-                        selectedBLEDeviceId = bleDevice.peripheralId
+                        destination = .ble(bleDevice.peripheralId)
                     }
                 }
             }
@@ -361,8 +298,8 @@ struct MenuBarView: View {
     private var navFooter: some View {
         HStack(spacing: 8) {
             Button {
-                if let device = selectedDevice {
-                    // Refresh selected device battery
+                if let device = activeDevice {
+                    // Refresh selected device battery.
                     Task {
                         if let mouse = device as? MouseDevice {
                             await mouse.refreshBattery()
@@ -370,24 +307,16 @@ struct MenuBarView: View {
                             await keyboard.refreshBattery()
                         }
                     }
-                } else if selectedBLEDevice != nil {
-                    // BLE device: no HID++ refresh available, just a no-op
-                    // Battery updates come via GATT notify subscription automatically
+                } else if activeBLEDevice != nil {
+                    // BLE device: no HID++ refresh available, just a no-op.
+                    // Battery updates come via GATT notify subscription automatically.
                 } else {
-                    // Rescan all
-                    deviceManager.stopDiscovery()
-                    deviceManager.devices.removeAll()
-                    selectedDevice = nil
-                    selectedBLEDeviceId = nil
-                    deviceManager.startDiscovery()
+                    rescanDevices()
                 }
             } label: {
-                Label(
-                    (selectedDevice != nil || selectedBLEDevice != nil) ? "Refresh" : "Rescan",
-                    systemImage: "arrow.clockwise"
-                )
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
+                Label(footerActionTitle, systemImage: "arrow.clockwise")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)
 
@@ -409,6 +338,139 @@ struct MenuBarView: View {
     }
 
     // MARK: - Helpers
+
+    private var rootHeader: some View {
+        HStack(spacing: 6) {
+            Image(nsImage: Self.headerIcon)
+                .foregroundStyle(.secondary)
+
+            Text("MXControl")
+                .font(.system(size: 13, weight: .semibold))
+
+            Spacer()
+
+            if deviceManager.isScanning {
+                ProgressView()
+                    .controlSize(.small)
+                    .scaleEffect(0.7)
+            }
+
+            Button {
+                destination = .general
+            } label: {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("General Settings")
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+    }
+
+    private var generalHeader: some View {
+        HStack(spacing: 6) {
+            backButton {
+                destination = .root
+            }
+
+            Spacer()
+
+            Image(systemName: "gearshape")
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
+
+            Text("General")
+                .font(.system(size: 13, weight: .medium))
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+    }
+
+    private func deviceHeader(for device: LogiDevice) -> some View {
+        HStack(spacing: 6) {
+            backButton {
+                destination = .root
+            }
+
+            Spacer()
+
+            Image(systemName: iconForDevice(device))
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
+
+            Text(device.name)
+                .font(.system(size: 13, weight: .medium))
+                .lineLimit(1)
+
+            if let transport = deviceManager.transportType(for: device) {
+                Text(transport.rawValue)
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(transport == .ble ? .blue : .secondary)
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 1)
+                    .background(
+                        RoundedRectangle(cornerRadius: 3)
+                            .fill(transport == .ble
+                                ? Color.blue.opacity(0.12)
+                                : Color.secondary.opacity(0.12))
+                    )
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+    }
+
+    private func bleHeader(for bleDevice: BLEDeviceInfo) -> some View {
+        HStack(spacing: 6) {
+            backButton {
+                destination = .root
+            }
+
+            Spacer()
+
+            Image(systemName: iconForBLEDevice(bleDevice))
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
+
+            Text(bleDevice.name)
+                .font(.system(size: 13, weight: .medium))
+                .lineLimit(1)
+
+            Text("BLE")
+                .font(.system(size: 9, weight: .medium))
+                .foregroundStyle(.blue)
+                .padding(.horizontal, 4)
+                .padding(.vertical, 1)
+                .background(
+                    RoundedRectangle(cornerRadius: 3)
+                        .fill(Color.blue.opacity(0.12))
+                )
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+    }
+
+    private func backButton(action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 3) {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 11, weight: .semibold))
+                Text("Back")
+                    .font(.system(size: 12))
+            }
+            .foregroundStyle(.secondary)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func rescanDevices() {
+        deviceManager.stopDiscovery()
+        deviceManager.devices.removeAll()
+        deviceManager.startDiscovery()
+    }
 
     private func iconForDevice(_ device: LogiDevice) -> String {
         switch device.deviceType {

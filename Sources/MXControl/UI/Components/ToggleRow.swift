@@ -8,19 +8,25 @@ struct ToggleRow: View {
     var onChange: ((Bool) -> Void)?
 
     var body: some View {
-        Toggle(isOn: $isOn) {
+        HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .leading, spacing: 1) {
                 Text(label)
                     .font(.system(size: 12))
+
                 if let subtitle {
                     Text(subtitle)
                         .font(.system(size: 10))
                         .foregroundStyle(.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Toggle("", isOn: $isOn)
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .controlSize(.small)
         }
-        .toggleStyle(.switch)
-        .controlSize(.small)
         .onChange(of: isOn) { _, newValue in
             onChange?(newValue)
         }

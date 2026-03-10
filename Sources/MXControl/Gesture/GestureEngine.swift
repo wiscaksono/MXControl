@@ -63,6 +63,23 @@ final class GestureEngine: @unchecked Sendable {
     /// The CID of the thumb/gesture button.
     let thumbCID: UInt16
 
+    // MARK: - Action Callbacks (injectable for testing)
+
+    /// Called when a click gesture is detected. Defaults to `MacActions.missionControl`.
+    var onClick: () -> Void = { MacActions.missionControl() }
+
+    /// Called when a drag-left gesture is detected. Defaults to `MacActions.workspaceRight`.
+    var onDragLeft: () -> Void = { MacActions.workspaceRight() }
+
+    /// Called when a drag-right gesture is detected. Defaults to `MacActions.workspaceLeft`.
+    var onDragRight: () -> Void = { MacActions.workspaceLeft() }
+
+    /// Called when a drag-up gesture is detected. Defaults to `MacActions.missionControl`.
+    var onDragUp: () -> Void = { MacActions.missionControl() }
+
+    /// Called when a drag-down gesture is detected. Defaults to `MacActions.appExpose`.
+    var onDragDown: () -> Void = { MacActions.appExpose() }
+
     // MARK: - Init
 
     init(thumbCID: UInt16 = 0x00C3) {
@@ -99,7 +116,7 @@ final class GestureEngine: @unchecked Sendable {
                 debugLog("[GestureEngine] → CLICK → Mission Control")
                 state = .idle
                 lock.unlock()
-                MacActions.missionControl()
+                onClick()
                 lock.lock()
             }
 
@@ -135,13 +152,13 @@ final class GestureEngine: @unchecked Sendable {
                 debugLog("[GestureEngine] DRAG LEFT (dx=\(accumulatedDeltaX)) → Workspace RIGHT")
                 state = .gesture
                 lock.unlock()
-                MacActions.workspaceRight()
+                onDragLeft()
                 lock.lock()
             } else {
                 debugLog("[GestureEngine] DRAG RIGHT (dx=\(accumulatedDeltaX)) → Workspace LEFT")
                 state = .gesture
                 lock.unlock()
-                MacActions.workspaceLeft()
+                onDragRight()
                 lock.lock()
             }
         } else if absDY >= dragThreshold && absDY > absDX {
@@ -150,13 +167,13 @@ final class GestureEngine: @unchecked Sendable {
                 debugLog("[GestureEngine] DRAG UP (dy=\(accumulatedDeltaY)) → Mission Control")
                 state = .gesture
                 lock.unlock()
-                MacActions.missionControl()
+                onDragUp()
                 lock.lock()
             } else {
                 debugLog("[GestureEngine] DRAG DOWN (dy=\(accumulatedDeltaY)) → App Exposé")
                 state = .gesture
                 lock.unlock()
-                MacActions.appExpose()
+                onDragDown()
                 lock.lock()
             }
         }

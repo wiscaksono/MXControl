@@ -24,38 +24,14 @@ enum MacActions {
     // MARK: - Actions
 
     /// Trigger Mission Control (Ctrl+Fn+UpArrow, SymbolicHotKey ID 32).
-    /// If called right after a workspace switch, delays until animation finishes (~1s).
     static func missionControl() {
-        let elapsed = Date().timeIntervalSince(lastWorkspaceSwitchTime)
-        if elapsed < 1.5 {
-            let delay = 1.5 - elapsed
-            debugLog("[MacActions] Mission Control delayed \(String(format: "%.0f", delay * 1000))ms (workspace cooldown)")
-            DispatchQueue.global(qos: .userInteractive).asyncAfter(deadline: .now() + delay) {
-                postKeyboardShortcut(keyCode: 0x7E)
-                debugLog("[MacActions] Mission Control triggered (after cooldown)")
-            }
-        } else {
-            postKeyboardShortcut(keyCode: 0x7E)  // kVK_UpArrow
-            debugLog("[MacActions] Mission Control triggered")
-        }
+        postWithCooldown(keyCode: 0x7E, label: "Mission Control")  // kVK_UpArrow
     }
 
     /// Trigger App Exposé (Ctrl+Fn+DownArrow, SymbolicHotKey ID 33).
     /// Shows all windows of the frontmost application.
-    /// Respects the same cooldown as Mission Control after workspace switches.
     static func appExpose() {
-        let elapsed = Date().timeIntervalSince(lastWorkspaceSwitchTime)
-        if elapsed < 1.5 {
-            let delay = 1.5 - elapsed
-            debugLog("[MacActions] App Exposé delayed \(String(format: "%.0f", delay * 1000))ms (workspace cooldown)")
-            DispatchQueue.global(qos: .userInteractive).asyncAfter(deadline: .now() + delay) {
-                postKeyboardShortcut(keyCode: 0x7D)
-                debugLog("[MacActions] App Exposé triggered (after cooldown)")
-            }
-        } else {
-            postKeyboardShortcut(keyCode: 0x7D)  // kVK_DownArrow
-            debugLog("[MacActions] App Exposé triggered")
-        }
+        postWithCooldown(keyCode: 0x7D, label: "App Exposé")  // kVK_DownArrow
     }
 
     /// Switch to the workspace on the LEFT (Ctrl+Fn+LeftArrow, SymbolicHotKey ID 79).
@@ -70,6 +46,25 @@ enum MacActions {
         lastWorkspaceSwitchTime = Date()
         postKeyboardShortcut(keyCode: 0x7C)  // kVK_RightArrow
         debugLog("[MacActions] Workspace Right triggered")
+    }
+
+    // MARK: - Cooldown Helper
+
+    /// Post a keyboard shortcut, respecting the workspace switch cooldown.
+    /// If called within 1.5s of a workspace switch, delays until animation finishes.
+    private static func postWithCooldown(keyCode: CGKeyCode, label: String) {
+        let elapsed = Date().timeIntervalSince(lastWorkspaceSwitchTime)
+        if elapsed < 1.5 {
+            let delay = 1.5 - elapsed
+            debugLog("[MacActions] \(label) delayed \(String(format: "%.0f", delay * 1000))ms (workspace cooldown)")
+            DispatchQueue.global(qos: .userInteractive).asyncAfter(deadline: .now() + delay) {
+                postKeyboardShortcut(keyCode: keyCode)
+                debugLog("[MacActions] \(label) triggered (after cooldown)")
+            }
+        } else {
+            postKeyboardShortcut(keyCode: keyCode)
+            debugLog("[MacActions] \(label) triggered")
+        }
     }
 
     // MARK: - CGEvent Keyboard Shortcut

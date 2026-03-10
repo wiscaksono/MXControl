@@ -99,6 +99,11 @@ struct MouseDetailView: View {
 
                     // Connection Info
                     ConnectionInfoRow(device: mouse)
+
+                    separator
+
+                    // Reset
+                    resetSection
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
@@ -110,6 +115,42 @@ struct MouseDetailView: View {
 
     private func save() {
         SettingsStore.save(mouse: mouse)
+    }
+
+    // MARK: - Reset
+
+    @State private var showResetConfirm = false
+
+    private var resetSection: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Button {
+                showResetConfirm = true
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "arrow.counterclockwise")
+                        .font(.system(size: 10))
+                    Text("Reset to Default")
+                        .font(.system(size: 12))
+                }
+                .foregroundStyle(.red)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.vertical, 8)
+            }
+            .buttonStyle(.plain)
+            .alert("Reset Settings", isPresented: $showResetConfirm) {
+                Button("Cancel", role: .cancel) {}
+                Button("Reset", role: .destructive) {
+                    SettingsStore.clearMouseSettings(deviceName: mouse.name)
+                    Task {
+                        mouse.isFeaturesLoaded = false
+                        await mouse.loadMouseFeatures()
+                    }
+                }
+            } message: {
+                Text("This will clear all saved settings for \(mouse.name) and reload current values from the device.")
+            }
+        }
+        .padding(.vertical, 4)
     }
 
     // MARK: - Battery
@@ -438,6 +479,11 @@ struct KeyboardDetailView: View {
 
                     // Connection Info
                     ConnectionInfoRow(device: keyboard)
+
+                    separator
+
+                    // Reset
+                    resetSection
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
@@ -447,6 +493,42 @@ struct KeyboardDetailView: View {
 
     private func save() {
         SettingsStore.save(keyboard: keyboard)
+    }
+
+    // MARK: - Reset
+
+    @State private var showResetConfirm = false
+
+    private var resetSection: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Button {
+                showResetConfirm = true
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "arrow.counterclockwise")
+                        .font(.system(size: 10))
+                    Text("Reset to Default")
+                        .font(.system(size: 12))
+                }
+                .foregroundStyle(.red)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.vertical, 8)
+            }
+            .buttonStyle(.plain)
+            .alert("Reset Settings", isPresented: $showResetConfirm) {
+                Button("Cancel", role: .cancel) {}
+                Button("Reset", role: .destructive) {
+                    SettingsStore.clearKeyboardSettings(deviceName: keyboard.name)
+                    Task {
+                        keyboard.isFeaturesLoaded = false
+                        await keyboard.loadKeyboardFeatures()
+                    }
+                }
+            } message: {
+                Text("This will clear all saved settings for \(keyboard.name) and reload current values from the device.")
+            }
+        }
+        .padding(.vertical, 4)
     }
 
     // MARK: - Battery

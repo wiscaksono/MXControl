@@ -41,6 +41,40 @@ enum SettingsStore {
         "\(prefix).\(deviceName.lowercased().replacingOccurrences(of: " ", with: "_")).\(setting)"
     }
 
+    // MARK: - Clear Settings
+
+    /// All known mouse setting suffixes — used by clearMouseSettings.
+    private static let mouseSettingKeys = [
+        "dpi", "pointer_speed",
+        "smartshift.active", "smartshift.torque", "smartshift.wheel_mode",
+        "hires.enabled", "hires.inverted",
+        "thumbwheel.inverted",
+        "button_remaps",
+        "gesture.click_time", "gesture.drag_threshold",
+    ]
+
+    /// All known keyboard setting suffixes — used by clearKeyboardSettings.
+    private static let keyboardSettingKeys = [
+        "backlight.enabled", "backlight.level",
+        "fn.inverted",
+    ]
+
+    /// Remove all saved mouse settings for a device.
+    static func clearMouseSettings(deviceName: String) {
+        for suffix in mouseSettingKeys {
+            defaults.removeObject(forKey: key(deviceName, suffix))
+        }
+        logger.info("[SettingsStore] Cleared mouse settings for \(deviceName)")
+    }
+
+    /// Remove all saved keyboard settings for a device.
+    static func clearKeyboardSettings(deviceName: String) {
+        for suffix in keyboardSettingKeys {
+            defaults.removeObject(forKey: key(deviceName, suffix))
+        }
+        logger.info("[SettingsStore] Cleared keyboard settings for \(deviceName)")
+    }
+
     // MARK: - Mouse Settings
 
     struct MouseSettings: Sendable {

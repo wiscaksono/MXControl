@@ -68,10 +68,14 @@ struct MouseDetailView: View {
                         separator
                     }
 
-                    // Hi-Res Scroll: intentionally not exposed in UI.
-                    // Feature 0x2121 setWheelMode(hiRes: true) redirects scroll
-                    // events to HID++ channel, causing OS to lose scroll input.
-                    // SmartShift (0x2111) handles wheel mode correctly.
+                    // Scroll Direction (uses HiResScroll feature for inversion only)
+                    // Note: Hi-Res on/off toggle is NOT exposed — setting hiRes: true
+                    // redirects scroll events to HID++ channel, losing OS input.
+                    // Only the inversion (natural scrolling) flag is safe to toggle.
+                    if mouse.hasFeature(HiResScrollFeature.featureId) {
+                        scrollDirectionSection
+                        separator
+                    }
 
                     // Thumb Wheel
                     if mouse.hasFeature(ThumbWheelFeature.featureId) && mouse.thumbWheelSupportsInversion {
@@ -239,6 +243,25 @@ struct MouseDetailView: View {
                     }
                     save()
                 }
+            }
+        }
+        .padding(.vertical, 6)
+    }
+
+    // MARK: - Scroll Direction
+
+    private var scrollDirectionSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ToggleRow(
+                label: "Natural Scrolling",
+                isOn: $mouse.hiResInverted,
+                subtitle: "Content moves in the direction of your finger"
+            ) { inverted in
+                Task {
+                    do { try await mouse.setHiResScroll(hiRes: mouse.hiResEnabled, inverted: inverted) }
+                    catch { debugLog("[UI] setHiResScroll inversion failed: \(error)") }
+                }
+                save()
             }
         }
         .padding(.vertical, 6)

@@ -7,17 +7,21 @@ import os
 ///   - **Click** → Mission Control
 ///   - **Hold + drag left** → Switch to RIGHT workspace
 ///   - **Hold + drag right** → Switch to LEFT workspace
+///   - **Hold + drag up** → Mission Control
+///   - **Hold + drag down** → App Exposé
 ///
 /// Two-phase detection (click-first guarantee):
 ///   1. If released within `clickTimeLimit` → **always a click** (regardless of movement)
-///   2. After `clickTimeLimit` elapsed, if `|deltaX| >= dragThreshold` → workspace switch
+///   2. After `clickTimeLimit` elapsed, whichever axis exceeds `dragThreshold` first wins:
+///      - `|deltaX| >= threshold` → horizontal workspace switch
+///      - `|deltaY| >= threshold` → vertical gesture (up = MC, down = Exposé)
 ///   3. If released after `clickTimeLimit` but below threshold → still a click
 ///
 /// State machine:
 ///   IDLE → button press → PENDING
 ///     PENDING → release within clickTimeLimit → CLICK
-///     PENDING → elapsed > clickTimeLimit AND |dx| >= threshold → GESTURE
-///     PENDING → release with |dx| < threshold → CLICK
+///     PENDING → elapsed > clickTimeLimit AND axis threshold met → GESTURE
+///     PENDING → release with no threshold met → CLICK
 ///     GESTURE → release → IDLE
 final class GestureEngine: @unchecked Sendable {
 
@@ -122,8 +126,11 @@ final class GestureEngine: @unchecked Sendable {
         guard elapsed >= clickTimeLimit else { return }
 
         let absDX = abs(accumulatedDeltaX)
+        let absDY = abs(accumulatedDeltaY)
 
-        if absDX >= dragThreshold {
+        // Whichever axis exceeds the threshold first wins (prevents diagonal confusion)
+        if absDX >= dragThreshold && absDX >= absDY {
+            // Horizontal gesture: workspace switch
             if accumulatedDeltaX < 0 {
                 debugLog("[GestureEngine] DRAG LEFT (dx=\(accumulatedDeltaX)) → Workspace RIGHT")
                 state = .gesture
@@ -135,6 +142,21 @@ final class GestureEngine: @unchecked Sendable {
                 state = .gesture
                 lock.unlock()
                 MacActions.workspaceLeft()
+                lock.lock()
+            }
+        } else if absDY >= dragThreshold && absDY > absDX {
+            // Vertical gesture: up = Mission Control, down = App Exposé
+            if accumulatedDeltaY < 0 {
+                debugLog("[GestureEngine] DRAG UP (dy=\(accumulatedDeltaY)) → Mission Control")
+                state = .gesture
+                lock.unlock()
+                MacActions.missionControl()
+                lock.lock()
+            } else {
+                debugLog("[GestureEngine] DRAG DOWN (dy=\(accumulatedDeltaY)) → App Exposé")
+                state = .gesture
+                lock.unlock()
+                MacActions.appExpose()
                 lock.lock()
             }
         }

@@ -40,6 +40,24 @@ enum MacActions {
         }
     }
 
+    /// Trigger App Exposé (Ctrl+Fn+DownArrow, SymbolicHotKey ID 33).
+    /// Shows all windows of the frontmost application.
+    /// Respects the same cooldown as Mission Control after workspace switches.
+    static func appExpose() {
+        let elapsed = Date().timeIntervalSince(lastWorkspaceSwitchTime)
+        if elapsed < 1.5 {
+            let delay = 1.5 - elapsed
+            debugLog("[MacActions] App Exposé delayed \(String(format: "%.0f", delay * 1000))ms (workspace cooldown)")
+            DispatchQueue.global(qos: .userInteractive).asyncAfter(deadline: .now() + delay) {
+                postKeyboardShortcut(keyCode: 0x7D)
+                debugLog("[MacActions] App Exposé triggered (after cooldown)")
+            }
+        } else {
+            postKeyboardShortcut(keyCode: 0x7D)  // kVK_DownArrow
+            debugLog("[MacActions] App Exposé triggered")
+        }
+    }
+
     /// Switch to the workspace on the LEFT (Ctrl+Fn+LeftArrow, SymbolicHotKey ID 79).
     static func workspaceLeft() {
         lastWorkspaceSwitchTime = Date()

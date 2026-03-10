@@ -214,4 +214,108 @@ struct SettingsStoreTests {
         #expect(loaded.buttonRemaps != nil)
         #expect(loaded.buttonRemaps!.isEmpty)
     }
+
+    // MARK: - Clear Settings
+
+    @Test func clearMouseSettingsRemovesAllKeys() {
+        let name = uniqueDeviceName()
+        defer { cleanup(deviceName: name) }
+
+        // Save a full set of mouse settings
+        let settings = SettingsStore.MouseSettings(
+            dpi: 1600,
+            pointerSpeed: 256,
+            smartShiftActive: true,
+            smartShiftTorque: 50,
+            smartShiftWheelMode: 2,
+            hiResEnabled: true,
+            hiResInverted: false,
+            thumbWheelInverted: true,
+            buttonRemaps: [82: 86],
+            gestureClickTimeLimit: 0.25,
+            gestureDragThreshold: 200
+        )
+        SettingsStore.saveMouseSettings(settings, deviceName: name)
+
+        // Verify saved
+        let before = SettingsStore.loadMouseSettings(deviceName: name)
+        #expect(before.dpi == 1600)
+        #expect(before.pointerSpeed == 256)
+
+        // Clear
+        SettingsStore.clearMouseSettings(deviceName: name)
+
+        // Verify all fields are nil after clear
+        let after = SettingsStore.loadMouseSettings(deviceName: name)
+        #expect(after.dpi == nil)
+        #expect(after.pointerSpeed == nil)
+        #expect(after.smartShiftActive == nil)
+        #expect(after.smartShiftTorque == nil)
+        #expect(after.smartShiftWheelMode == nil)
+        #expect(after.hiResEnabled == nil)
+        #expect(after.hiResInverted == nil)
+        #expect(after.thumbWheelInverted == nil)
+        #expect(after.buttonRemaps == nil)
+        #expect(after.gestureClickTimeLimit == nil)
+        #expect(after.gestureDragThreshold == nil)
+    }
+
+    @Test func clearKeyboardSettingsRemovesAllKeys() {
+        let name = uniqueDeviceName()
+        defer { cleanup(deviceName: name) }
+
+        let settings = SettingsStore.KeyboardSettings(
+            backlightEnabled: true,
+            backlightLevel: 5,
+            fnInverted: true
+        )
+        SettingsStore.saveKeyboardSettings(settings, deviceName: name)
+
+        // Verify saved
+        let before = SettingsStore.loadKeyboardSettings(deviceName: name)
+        #expect(before.backlightEnabled == true)
+        #expect(before.backlightLevel == 5)
+        #expect(before.fnInverted == true)
+
+        // Clear
+        SettingsStore.clearKeyboardSettings(deviceName: name)
+
+        // Verify all fields are nil
+        let after = SettingsStore.loadKeyboardSettings(deviceName: name)
+        #expect(after.backlightEnabled == nil)
+        #expect(after.backlightLevel == nil)
+        #expect(after.fnInverted == nil)
+    }
+
+    @Test func clearSettingsDoesNotAffectOtherDevices() {
+        let name1 = uniqueDeviceName("Device A")
+        let name2 = uniqueDeviceName("Device B")
+        defer {
+            cleanup(deviceName: name1)
+            cleanup(deviceName: name2)
+        }
+
+        // Save settings for both devices
+        SettingsStore.saveMouseSettings(
+            SettingsStore.MouseSettings(dpi: 1600, pointerSpeed: 256),
+            deviceName: name1
+        )
+        SettingsStore.saveMouseSettings(
+            SettingsStore.MouseSettings(dpi: 3200, pointerSpeed: 512),
+            deviceName: name2
+        )
+
+        // Clear only device A
+        SettingsStore.clearMouseSettings(deviceName: name1)
+
+        // Device A should be cleared
+        let afterA = SettingsStore.loadMouseSettings(deviceName: name1)
+        #expect(afterA.dpi == nil)
+        #expect(afterA.pointerSpeed == nil)
+
+        // Device B should be untouched
+        let afterB = SettingsStore.loadMouseSettings(deviceName: name2)
+        #expect(afterB.dpi == 3200)
+        #expect(afterB.pointerSpeed == 512)
+    }
 }

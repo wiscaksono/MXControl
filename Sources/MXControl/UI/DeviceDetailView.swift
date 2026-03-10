@@ -129,7 +129,7 @@ struct MouseDetailView: View {
                 HStack(spacing: 6) {
                     Image(systemName: "arrow.counterclockwise")
                         .font(.system(size: 10))
-                    Text("Reset to Default")
+                    Text("Clear Saved Settings")
                         .font(.system(size: 12))
                 }
                 .foregroundStyle(.red)
@@ -137,9 +137,9 @@ struct MouseDetailView: View {
                 .padding(.vertical, 8)
             }
             .buttonStyle(.plain)
-            .alert("Reset Settings", isPresented: $showResetConfirm) {
+            .alert("Clear Saved Settings", isPresented: $showResetConfirm) {
                 Button("Cancel", role: .cancel) {}
-                Button("Reset", role: .destructive) {
+                Button("Clear", role: .destructive) {
                     SettingsStore.clearMouseSettings(deviceName: mouse.name)
                     Task {
                         mouse.isFeaturesLoaded = false
@@ -147,7 +147,7 @@ struct MouseDetailView: View {
                     }
                 }
             } message: {
-                Text("This will clear all saved settings for \(mouse.name) and reload current values from the device.")
+                Text("This will remove all saved settings for \(mouse.name) and reload current values from the device.")
             }
         }
         .padding(.vertical, 4)
@@ -507,7 +507,7 @@ struct KeyboardDetailView: View {
                 HStack(spacing: 6) {
                     Image(systemName: "arrow.counterclockwise")
                         .font(.system(size: 10))
-                    Text("Reset to Default")
+                    Text("Clear Saved Settings")
                         .font(.system(size: 12))
                 }
                 .foregroundStyle(.red)
@@ -515,9 +515,9 @@ struct KeyboardDetailView: View {
                 .padding(.vertical, 8)
             }
             .buttonStyle(.plain)
-            .alert("Reset Settings", isPresented: $showResetConfirm) {
+            .alert("Clear Saved Settings", isPresented: $showResetConfirm) {
                 Button("Cancel", role: .cancel) {}
-                Button("Reset", role: .destructive) {
+                Button("Clear", role: .destructive) {
                     SettingsStore.clearKeyboardSettings(deviceName: keyboard.name)
                     Task {
                         keyboard.isFeaturesLoaded = false
@@ -525,7 +525,7 @@ struct KeyboardDetailView: View {
                     }
                 }
             } message: {
-                Text("This will clear all saved settings for \(keyboard.name) and reload current values from the device.")
+                Text("This will remove all saved settings for \(keyboard.name) and reload current values from the device.")
             }
         }
         .padding(.vertical, 4)

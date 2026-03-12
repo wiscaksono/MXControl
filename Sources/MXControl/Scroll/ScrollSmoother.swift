@@ -1,0 +1,315 @@
+import CoreGraphics
+import os
+
+/// Smooth scroll engine using a high-frequency timer for interpolation.
+///
+/// Receives raw scroll deltas from ScrollInterceptor and produces smooth,
+/// pixel-based scroll events using exponential decay at ~120Hz.
+///
+/// Thread safety: accumulate() is called from the CGEventTap thread,
+/// the timer fires on a dedicated serial queue. Shared state is protected
+/// by os_unfair_lock.
+///
+/// Design notes (v2 — simplified from CVDisplayLink + phase state machine):
+///   - DispatchSourceTimer replaces CVDisplayLink (no deprecation warnings)
+///   - Phase simulation removed — apps handle non-phase pixel scroll fine
+///   - Events posted directly from timer thread (no postQueue indirection)
+///   - Relative delta model: buffer resets to 0 after animation completes
+final class ScrollSmoother: @unchecked Sendable {
+
+    // MARK: - Configuration (lock-protected)
+
+    private var _speedMultiplier: Double = 1.0
+    var speedMultiplier: Double {
+        get { withLock { _speedMultiplier } }
+        set { withLock { _speedMultiplier = newValue } }
+    }
+
+    /// Momentum decay factor applied each frame after input stops.
+    /// Higher = longer coast (0.80 = short, 0.98 = long trackpad-like glide).
+    private var _momentumDecay: Double = 0.92
+    var momentumDecay: Double {
+        get { withLock { _momentumDecay } }
+        set { withLock { _momentumDecay = newValue } }
+    }
+
+    /// Internal lerp factor per frame. Fixed constant — not user-facing.
+    /// Controls how quickly each frame approaches the remaining distance.
+    private let _smoothness: Double = 0.22
+
+    // MARK: - Internal State (lock-protected)
+
+    private var lock = os_unfair_lock_s()
+
+    /// Remaining scroll distance to animate (target delta, decays to 0).
+    private var remainY: Double = 0
+    private var remainX: Double = 0
+
+    /// Sub-pixel accumulator: carries fractional pixels lost to integer rounding.
+    /// Without this, slow scrolling loses pixels every frame and feels janky.
+    private var subPixelY: Double = 0
+    private var subPixelX: Double = 0
+
+    /// Frames since last real input — used to detect end of gesture.
+    private var framesSinceInput: Int = 0
+
+    /// Whether we have residual scroll to animate.
+    private var isAnimating: Bool = false
+
+    // MARK: - Timer
+
+    private var timer: DispatchSourceTimer?
+
+    /// Dedicated serial queue for the scroll timer (userInteractive for low latency).
+    private let timerQueue = DispatchQueue(
+        label: "com.mxcontrol.scroll.timer",
+        qos: .userInteractive
+    )
+
+    /// Current timer interval in nanoseconds, derived from display refresh rate.
+    private var timerIntervalNs: UInt64 = 8_333_333  // default ~120Hz
+
+    /// Fallback interval when display refresh rate can't be determined.
+    private static let fallbackIntervalNs: UInt64 = 8_333_333  // 120Hz
+
+    // MARK: - Constants
+
+    /// Stop animating when remaining distance is below this (pixels).
+    private static let deadZone: Double = 0.1
+
+    /// Frames without input before we let the animation coast to a stop.
+    /// Dynamically scaled based on refresh rate so the time window stays ~50ms.
+    private var inputStopFrames: Int = 6
+
+    // MARK: - Lock Helper
+
+    @inline(__always)
+    private func withLock<T>(_ body: () -> T) -> T {
+        os_unfair_lock_lock(&lock)
+        defer { os_unfair_lock_unlock(&lock) }
+        return body()
+    }
+
+    // MARK: - Display Refresh Rate
+
+    /// Query the main display's refresh rate and compute timer interval.
+    private func updateTimerInterval() {
+        let displayID = CGMainDisplayID()
+        var refreshRate: Double = 0
+
+        if let mode = CGDisplayCopyDisplayMode(displayID) {
+            refreshRate = mode.refreshRate
+        }
+
+        // refreshRate == 0 means "unknown" (e.g. some external displays)
+        if refreshRate < 30 {
+            refreshRate = 120  // safe fallback
+        }
+
+        timerIntervalNs = UInt64(1_000_000_000.0 / refreshRate)
+
+        // Scale inputStopFrames so the time window is always ~50ms
+        // e.g. 60Hz → 3 frames, 120Hz → 6 frames, 240Hz → 12 frames
+        inputStopFrames = max(3, Int((refreshRate * 0.05).rounded()))
+
+        logger.info("[ScrollSmoother] Display refresh rate: \(Int(refreshRate))Hz, timer interval: \(self.timerIntervalNs / 1_000_000)ms, stopFrames: \(self.inputStopFrames)")
+    }
+
+    /// Callback registered for display reconfiguration events.
+    /// Updates timer interval when display config changes (e.g. monitor switch,
+    /// ProMotion rate change, external display connected).
+    private static let displayReconfigCallback: CGDisplayReconfigurationCallBack = { _, flags, userInfo in
+        guard flags.contains(.setModeFlag) || flags.contains(.addFlag) else { return }
+        guard let userInfo else { return }
+        let smoother = Unmanaged<ScrollSmoother>.fromOpaque(userInfo).takeUnretainedValue()
+        smoother.rescheduleTimer()
+    }
+
+    /// Re-query refresh rate and reschedule the timer with the new interval.
+    private func rescheduleTimer() {
+        updateTimerInterval()
+        guard let source = timer else { return }
+        source.schedule(
+            deadline: .now(),
+            repeating: .nanoseconds(Int(timerIntervalNs)),
+            leeway: .nanoseconds(500_000)
+        )
+        debugLog("[ScrollSmoother] Timer rescheduled for new refresh rate")
+    }
+
+    // MARK: - Start / Stop
+
+    func start() {
+        guard timer == nil else { return }
+
+        updateTimerInterval()
+
+        let source = DispatchSource.makeTimerSource(flags: .strict, queue: timerQueue)
+        source.schedule(
+            deadline: .now(),
+            repeating: .nanoseconds(Int(timerIntervalNs)),
+            leeway: .nanoseconds(500_000)  // 0.5ms leeway
+        )
+        source.setEventHandler { [weak self] in
+            self?.processFrame()
+        }
+        source.resume()
+        timer = source
+
+        // Register for display reconfiguration events
+        CGDisplayRegisterReconfigurationCallback(
+            Self.displayReconfigCallback,
+            Unmanaged.passUnretained(self).toOpaque()
+        )
+
+        debugLog("[ScrollSmoother] Timer started (\(1_000_000_000 / timerIntervalNs)Hz)")
+    }
+
+    func stop() {
+        // Unregister display reconfiguration callback
+        CGDisplayRemoveReconfigurationCallback(
+            Self.displayReconfigCallback,
+            Unmanaged.passUnretained(self).toOpaque()
+        )
+
+        timer?.cancel()
+        timer = nil
+
+        withLock {
+            remainY = 0
+            remainX = 0
+            subPixelY = 0
+            subPixelX = 0
+            isAnimating = false
+            framesSinceInput = 0
+        }
+
+        debugLog("[ScrollSmoother] Stopped")
+    }
+
+    // MARK: - Accumulate (called from CGEventTap thread)
+
+    func accumulate(deltaY: Double, deltaX: Double) {
+        os_unfair_lock_lock(&lock)
+
+        let scaledY = deltaY * _speedMultiplier
+        let scaledX = deltaX * _speedMultiplier
+
+        // Direction change on Y — discard old residual for snappy reversal
+        if scaledY != 0 && remainY != 0 && (scaledY > 0) != (remainY > 0) {
+            remainY = scaledY
+            subPixelY = 0
+        } else {
+            remainY += scaledY
+        }
+
+        // Direction change on X
+        if scaledX != 0 && remainX != 0 && (scaledX > 0) != (remainX > 0) {
+            remainX = scaledX
+            subPixelX = 0
+        } else {
+            remainX += scaledX
+        }
+
+        framesSinceInput = 0
+        isAnimating = true
+
+        os_unfair_lock_unlock(&lock)
+    }
+
+    // MARK: - Process Frame (called from timer queue at ~120Hz)
+
+    private func processFrame() {
+        os_unfair_lock_lock(&lock)
+
+        guard isAnimating else {
+            os_unfair_lock_unlock(&lock)
+            return
+        }
+
+        framesSinceInput += 1
+        let inputStopped = framesSinceInput > self.inputStopFrames
+
+        // MOMENTUM PHASE: after input stops, decay the remaining buffer each frame.
+        // This gives a natural "coast to stop" feel like trackpad inertia.
+        if inputStopped {
+            remainY *= _momentumDecay
+            remainX *= _momentumDecay
+        }
+
+        // Adaptive smoothness: for small remaining distances, increase the lerp factor
+        // so each frame emits at least ~1px. Prevents many near-zero frames that cause
+        // visible stutter during slow scrolling.
+        let absRemainY = abs(remainY)
+        let absRemainX = abs(remainX)
+        let adaptiveY = absRemainY > 1.0 ? _smoothness : max(_smoothness, min(1.0, 1.0 / max(absRemainY, 0.01)))
+        let adaptiveX = absRemainX > 1.0 ? _smoothness : max(_smoothness, min(1.0, 1.0 / max(absRemainX, 0.01)))
+
+        // Exponential interpolation with adaptive factor
+        let frameY = remainY * adaptiveY
+        let frameX = remainX * adaptiveX
+
+        // Subtract what we're about to emit
+        remainY -= frameY
+        remainX -= frameX
+
+        // Check if we're done
+        let isDead = absRemainY < Self.deadZone && absRemainX < Self.deadZone
+        if isDead && inputStopped {
+            remainY = 0
+            remainX = 0
+            subPixelY = 0
+            subPixelX = 0
+            isAnimating = false
+            os_unfair_lock_unlock(&lock)
+            return
+        }
+
+        // Sub-pixel accumulation: add fractional pixels to accumulator,
+        // only emit the integer part. Carry remainder to next frame.
+        // This preserves total scroll distance and eliminates jitter from rounding.
+        subPixelY += frameY
+        subPixelX += frameX
+
+        let emitY = subPixelY.rounded()
+        let emitX = subPixelX.rounded()
+
+        subPixelY -= emitY
+        subPixelX -= emitX
+
+        os_unfair_lock_unlock(&lock)
+
+        // Only post if we have at least 1 integer pixel to emit on either axis
+        if emitY == 0 && emitX == 0 { return }
+
+        // Post the scroll event directly from this thread
+        postScrollEvent(intY: Int32(emitY), intX: Int32(emitX), preciseY: frameY, preciseX: frameX)
+    }
+
+    // MARK: - Scroll Event Dispatch
+
+    private func postScrollEvent(intY: Int32, intX: Int32, preciseY: Double, preciseX: Double) {
+        guard let source = CGEventSource(stateID: .privateState) else { return }
+
+        guard let event = CGEvent(
+            scrollWheelEvent2Source: source,
+            units: .pixel,
+            wheelCount: 2,
+            wheel1: intY,
+            wheel2: intX,
+            wheel3: 0
+        ) else { return }
+
+        // Set sub-pixel precision for apps that support it (e.g. Safari, native AppKit)
+        event.setDoubleValueField(CGEventField.scrollWheelEventPointDeltaAxis1, value: preciseY)
+        event.setDoubleValueField(CGEventField.scrollWheelEventPointDeltaAxis2, value: preciseX)
+
+        // Mark as continuous (pixel-based) so apps treat it like trackpad input
+        event.setDoubleValueField(CGEventField.scrollWheelEventIsContinuous, value: 1.0)
+
+        // Mark as synthetic to prevent re-entry in our event tap
+        event.setIntegerValueField(CGEventField.eventSourceUserData, value: ScrollInterceptor.syntheticMarker)
+
+        event.post(tap: CGEventTapLocation.cgSessionEventTap)
+    }
+}

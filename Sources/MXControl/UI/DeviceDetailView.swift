@@ -50,48 +50,31 @@ struct MouseDetailView: View {
                         separator
                     }
 
-                    // DPI
-                    if mouse.hasFeature(AdjustableDPIFeature.featureId) {
-                        dpiSection
-                        separator
-                    }
-
-                    // Pointer Speed
-                    if mouse.hasFeature(PointerSpeedFeature.featureId) {
-                        pointerSpeedSection
-                        separator
-                    }
-
-                    // Scroll Wheel (SmartShift)
+                    // Wheel Mode picker (Ratchet / Free Spin)
                     if mouse.hasFeature(SmartShiftFeature.featureId) {
-                        smartShiftSection
+                        wheelModeSection
                         separator
                     }
 
-                    // Scroll Direction (uses HiResScroll feature for inversion only)
-                    // Note: Hi-Res on/off toggle is NOT exposed — setting hiRes: true
-                    // redirects scroll events to HID++ channel, losing OS input.
-                    // Only the inversion (natural scrolling) flag is safe to toggle.
+                    // SmartShift toggle
+                    if mouse.hasFeature(SmartShiftFeature.featureId) {
+                        smartShiftToggleSection
+                        separator
+                    }
+
+                    // Smooth Scroll toggle (+ accessibility warning)
+                    smoothScrollSection
+                    separator
+
+                    // Natural Scrolling
                     if mouse.hasFeature(HiResScrollFeature.featureId) {
                         scrollDirectionSection
                         separator
                     }
 
-                    // Thumb Wheel
+                    // Invert Thumb Wheel
                     if mouse.hasFeature(ThumbWheelFeature.featureId) && mouse.thumbWheelSupportsInversion {
                         thumbWheelSection
-                        separator
-                    }
-
-                    // Gesture Button
-                    if mouse.gestureEngine != nil {
-                        gestureSection
-                        separator
-                    }
-
-                    // Button Remapping
-                    if !mouse.buttons.isEmpty {
-                        buttonsSection
                         separator
                     }
 
@@ -101,9 +84,8 @@ struct MouseDetailView: View {
                         separator
                     }
 
-                    // Connection Info
-                    ConnectionInfoRow(device: mouse)
-
+                    // Advanced (DPI, SmartShift Force, Scroll Speed/Momentum, Gesture thresholds)
+                    advancedSection
                     separator
 
                     // Reset
@@ -121,37 +103,71 @@ struct MouseDetailView: View {
         SettingsStore.save(mouse: mouse)
     }
 
-    // MARK: - Reset
+    // MARK: - Reset (inline confirmation — .alert() dismisses MenuBarExtra)
 
     @State private var showResetConfirm = false
+    @State private var resetHovered = false
 
     private var resetSection: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Button {
-                showResetConfirm = true
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "arrow.counterclockwise")
-                        .font(.system(size: 10))
-                    Text("Clear Saved Settings")
-                        .font(.system(size: 12))
-                }
-                .foregroundStyle(.red)
-                .frame(maxWidth: .infinity, alignment: .center)
-                .padding(.vertical, 8)
-            }
-            .buttonStyle(.plain)
-            .alert("Clear Saved Settings", isPresented: $showResetConfirm) {
-                Button("Cancel", role: .cancel) {}
-                Button("Clear", role: .destructive) {
-                    SettingsStore.clearMouseSettings(deviceName: mouse.name)
-                    Task {
-                        mouse.isFeaturesLoaded = false
-                        await mouse.loadMouseFeatures()
+        VStack(alignment: .leading, spacing: 0) {
+            if showResetConfirm {
+                VStack(spacing: 10) {
+                    Text("Remove all saved settings and reload from device?")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: .infinity)
+
+                    HStack(spacing: 8) {
+                        ResetActionButton(label: "Cancel", isDestructive: false) {
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                showResetConfirm = false
+                            }
+                        }
+
+                        ResetActionButton(label: "Clear", isDestructive: true) {
+                            SettingsStore.clearMouseSettings(deviceName: mouse.name)
+                            Task {
+                                mouse.isFeaturesLoaded = false
+                                await mouse.loadMouseFeatures()
+                            }
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                showResetConfirm = false
+                            }
+                        }
                     }
                 }
-            } message: {
-                Text("This will remove all saved settings for \(mouse.name) and reload current values from the device.")
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color(nsColor: .controlBackgroundColor))
+                )
+            } else {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        showResetConfirm = true
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.counterclockwise")
+                            .font(.system(size: 10))
+                        Text("Clear Saved Settings")
+                            .font(.system(size: 12))
+                    }
+                    .foregroundStyle(.red)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.vertical, 10)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(resetHovered
+                                ? Color(nsColor: .selectedContentBackgroundColor).opacity(0.12)
+                                : Color(nsColor: .controlBackgroundColor))
+                    )
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .onHover { resetHovered = $0 }
             }
         }
         .padding(.vertical, 4)
@@ -190,75 +206,38 @@ struct MouseDetailView: View {
         .padding(.vertical, 20)
     }
 
-    // MARK: - DPI
+    // MARK: - Wheel Mode (picker only)
 
-    private var dpiSection: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            SliderRow(
-                label: "DPI",
-                intValue: $mouse.currentDPI,
-                range: mouse.dpiMin...mouse.dpiMax,
-                step: mouse.dpiStep,
-                suffix: " DPI"
-            ) {
+    private var wheelModeSection: some View {
+        row {
+            Text("Wheel")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .frame(width: 60, alignment: .leading)
+
+            Spacer()
+
+            Picker("", selection: $mouse.smartShiftWheelMode) {
+                Text("Ratchet").tag(SmartShiftFeature.WheelMode.ratchet)
+                Text("Free Spin").tag(SmartShiftFeature.WheelMode.freeSpin)
+            }
+            .labelsHidden()
+            .pickerStyle(.segmented)
+            .frame(maxWidth: 160)
+            .onChange(of: mouse.smartShiftWheelMode) { _, newMode in
                 Task {
-                    do { try await mouse.setDPI(mouse.currentDPI) }
-                    catch { debugLog("[UI] DPI set ERROR: \(error)") }
+                    do { try await mouse.setSmartShift(wheelMode: newMode) }
+                    catch { debugLog("[UI] setSmartShift wheelMode failed: \(error)") }
                 }
                 save()
             }
         }
-        .padding(.vertical, 6)
     }
 
-    // MARK: - Pointer Speed
+    // MARK: - SmartShift Toggle (no Force slider — that's in Advanced)
 
-    private var pointerSpeedSection: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            SliderRow(
-                label: "Speed",
-                intValue: $mouse.pointerSpeed,
-                range: 0...512,
-                step: 1
-            ) {
-                Task {
-                    do { try await mouse.setPointerSpeed(mouse.pointerSpeed) }
-                    catch { debugLog("[UI] setPointerSpeed failed: \(error)") }
-                }
-                save()
-            }
-        }
-        .padding(.vertical, 6)
-    }
-
-    // MARK: - SmartShift
-
-    private var smartShiftSection: some View {
+    private var smartShiftToggleSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            row {
-                Text("Wheel")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 60, alignment: .leading)
-
-                Spacer()
-
-                Picker("", selection: $mouse.smartShiftWheelMode) {
-                    Text("Ratchet").tag(SmartShiftFeature.WheelMode.ratchet)
-                    Text("Free Spin").tag(SmartShiftFeature.WheelMode.freeSpin)
-                }
-                .labelsHidden()
-                .pickerStyle(.segmented)
-                .frame(maxWidth: 160)
-                .onChange(of: mouse.smartShiftWheelMode) { _, newMode in
-                    Task {
-                        do { try await mouse.setSmartShift(wheelMode: newMode) }
-                        catch { debugLog("[UI] setSmartShift wheelMode failed: \(error)") }
-                    }
-                    save()
-                }
-            }
-
             ToggleRow(
                 label: "SmartShift",
                 isOn: $mouse.smartShiftActive,
@@ -270,19 +249,156 @@ struct MouseDetailView: View {
                 }
                 save()
             }
+        }
+        .padding(.vertical, 6)
+    }
 
-            if mouse.smartShiftActive {
-                SliderRow(
-                    label: "Force",
-                    intValue: $mouse.smartShiftTorque,
-                    range: 1...mouse.smartShiftMaxForce,
-                    step: 1
-                ) {
-                    Task {
-                        do { try await mouse.setSmartShift(torque: mouse.smartShiftTorque) }
-                        catch { debugLog("[UI] setSmartShift torque failed: \(error)") }
+    // MARK: - Smooth Scroll (toggle + accessibility warning only)
+
+    private var smoothScrollSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ToggleRow(
+                label: "Smooth Scroll",
+                isOn: $mouse.smoothScrollEnabled,
+                subtitle: "Smooths scroll wheel input (best with free-spin)"
+            ) { enabled in
+                if enabled {
+                    MacActions.requestAccessibilityPermission()
+                }
+                save()
+            }
+
+            if mouse.smoothScrollEnabled && !MacActions.hasAccessibilityPermission() {
+                HStack(alignment: .top, spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.orange)
+                    Text("Accessibility permission required. Grant in System Settings > Privacy & Security > Accessibility.")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .padding(.vertical, 6)
+    }
+
+    // MARK: - Advanced (custom disclosure — full row is clickable)
+
+    @State private var showAdvanced = false
+
+    private var advancedSection: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    showAdvanced.toggle()
+                }
+            } label: {
+                HStack {
+                    Text("Advanced")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                        .rotationEffect(.degrees(showAdvanced ? 90 : 0))
+                }
+                .contentShape(Rectangle())
+                .padding(.vertical, 8)
+            }
+            .buttonStyle(.plain)
+
+            if showAdvanced {
+                VStack(alignment: .leading, spacing: 4) {
+                    // DPI
+                    if mouse.hasFeature(AdjustableDPIFeature.featureId) {
+                        SliderRow(
+                            label: "DPI",
+                            intValue: $mouse.currentDPI,
+                            range: mouse.dpiMin...mouse.dpiMax,
+                            step: mouse.dpiStep,
+                            suffix: " DPI"
+                        ) {
+                            Task {
+                                do { try await mouse.setDPI(mouse.currentDPI) }
+                                catch { debugLog("[UI] DPI set ERROR: \(error)") }
+                            }
+                            save()
+                        }
                     }
-                    save()
+
+                    // SmartShift Force
+                    if mouse.hasFeature(SmartShiftFeature.featureId) && mouse.smartShiftActive {
+                        SliderRow(
+                            label: "SmartShift Force",
+                            intValue: $mouse.smartShiftTorque,
+                            range: 1...mouse.smartShiftMaxForce,
+                            step: 1
+                        ) {
+                            Task {
+                                do { try await mouse.setSmartShift(torque: mouse.smartShiftTorque) }
+                                catch { debugLog("[UI] setSmartShift torque failed: \(error)") }
+                            }
+                            save()
+                        }
+                    }
+
+                    // Smooth Scroll Speed
+                    if mouse.smoothScrollEnabled {
+                        SliderRow(
+                            label: "Scroll Speed",
+                            value: $mouse.smoothScrollSpeed,
+                            range: 1.0...10.0,
+                            step: 0.5,
+                            format: "%.1f",
+                            suffix: "x"
+                        ) {
+                            save()
+                        }
+
+                        SliderRow(
+                            label: "Scroll Momentum",
+                            value: $mouse.smoothScrollMomentum,
+                            range: 0.80...0.98,
+                            step: 0.01,
+                            format: "%.2f"
+                        ) {
+                            save()
+                        }
+                    }
+
+                    // Gesture thresholds
+                    if mouse.gestureEngine != nil {
+                        Text("Gesture Button")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(.tertiary)
+                            .textCase(.uppercase)
+                            .padding(.top, 6)
+                            .padding(.bottom, 2)
+
+                        SliderRow(
+                            label: "Click",
+                            intValue: Binding(
+                                get: { Int(mouse.gestureClickTimeLimit * 1000) },
+                                set: { mouse.gestureClickTimeLimit = Double($0) / 1000.0 }
+                            ),
+                            range: 100...400,
+                            step: 10,
+                            suffix: "ms"
+                        ) {
+                            save()
+                        }
+
+                        SliderRow(
+                            label: "Drag",
+                            intValue: $mouse.gestureDragThreshold,
+                            range: 50...500,
+                            step: 10
+                        ) {
+                            save()
+                        }
+                    }
                 }
             }
         }
@@ -327,62 +443,7 @@ struct MouseDetailView: View {
         .padding(.vertical, 6)
     }
 
-    // MARK: - Gesture Button
-
-    private var gestureSection: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("Gesture Button")
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(.tertiary)
-                .textCase(.uppercase)
-                .padding(.top, 10)
-                .padding(.bottom, 2)
-
-            SliderRow(
-                label: "Click",
-                intValue: Binding(
-                    get: { Int(mouse.gestureClickTimeLimit * 1000) },
-                    set: { mouse.gestureClickTimeLimit = Double($0) / 1000.0 }
-                ),
-                range: 100...400,
-                step: 10,
-                suffix: "ms"
-            ) {
-                save()
-            }
-
-            SliderRow(
-                label: "Drag",
-                intValue: $mouse.gestureDragThreshold,
-                range: 50...500,
-                step: 10
-            ) {
-                save()
-            }
-        }
-    }
-
-    // MARK: - Button Remapping
-
-    private var buttonsSection: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Buttons")
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(.tertiary)
-                .textCase(.uppercase)
-                .padding(.top, 10)
-                .padding(.bottom, 2)
-
-            ForEach(mouse.buttons.filter { $0.isRemappable }) { button in
-                ButtonRemapRow(
-                    button: button,
-                    mouse: mouse,
-                    onRemapped: { save() }
-                )
-            }
-        }
-        .padding(.vertical, 2)
-    }
+    // (Gesture thresholds moved into Advanced section)
 
     // MARK: - Host Info
 
@@ -416,43 +477,6 @@ struct MouseDetailView: View {
             }
         }
         .padding(.vertical, 2)
-    }
-}
-
-// MARK: - Button Remap Row
-
-private struct ButtonRemapRow: View {
-    let button: SpecialKeysFeature.ControlInfo
-    let mouse: MouseDevice
-    var onRemapped: (() -> Void)?
-
-    @State private var selectedAction: ButtonAction = .defaultAction
-
-    var body: some View {
-        let name = SpecialKeysFeature.KnownCID(rawValue: button.controlId)?.description
-            ?? String(format: "CID %d", button.controlId)
-
-        ActionPicker(
-            buttonName: name,
-            controlId: button.controlId,
-            currentAction: $selectedAction
-        ) { newAction in
-            Task {
-                do {
-                    try await mouse.remapButton(
-                        controlId: button.controlId,
-                        to: newAction.remapCID
-                    )
-                } catch {
-                    debugLog("[UI] remapButton CID=\(button.controlId) failed: \(error)")
-                }
-                onRemapped?()
-            }
-        }
-        .onAppear {
-            let currentRemap = mouse.buttonRemaps[button.controlId] ?? 0
-            selectedAction = ButtonAction.from(cid: currentRemap)
-        }
     }
 }
 
@@ -500,11 +524,6 @@ struct KeyboardDetailView: View {
                         separator
                     }
 
-                    // Connection Info
-                    ConnectionInfoRow(device: keyboard)
-
-                    separator
-
                     // Reset
                     resetSection
                 }
@@ -518,37 +537,71 @@ struct KeyboardDetailView: View {
         SettingsStore.save(keyboard: keyboard)
     }
 
-    // MARK: - Reset
+    // MARK: - Reset (inline confirmation — .alert() dismisses MenuBarExtra)
 
     @State private var showResetConfirm = false
+    @State private var resetHovered = false
 
     private var resetSection: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Button {
-                showResetConfirm = true
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "arrow.counterclockwise")
-                        .font(.system(size: 10))
-                    Text("Clear Saved Settings")
-                        .font(.system(size: 12))
-                }
-                .foregroundStyle(.red)
-                .frame(maxWidth: .infinity, alignment: .center)
-                .padding(.vertical, 8)
-            }
-            .buttonStyle(.plain)
-            .alert("Clear Saved Settings", isPresented: $showResetConfirm) {
-                Button("Cancel", role: .cancel) {}
-                Button("Clear", role: .destructive) {
-                    SettingsStore.clearKeyboardSettings(deviceName: keyboard.name)
-                    Task {
-                        keyboard.isFeaturesLoaded = false
-                        await keyboard.loadKeyboardFeatures()
+        VStack(alignment: .leading, spacing: 0) {
+            if showResetConfirm {
+                VStack(spacing: 10) {
+                    Text("Remove all saved settings and reload from device?")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: .infinity)
+
+                    HStack(spacing: 8) {
+                        ResetActionButton(label: "Cancel", isDestructive: false) {
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                showResetConfirm = false
+                            }
+                        }
+
+                        ResetActionButton(label: "Clear", isDestructive: true) {
+                            SettingsStore.clearKeyboardSettings(deviceName: keyboard.name)
+                            Task {
+                                keyboard.isFeaturesLoaded = false
+                                await keyboard.loadKeyboardFeatures()
+                            }
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                showResetConfirm = false
+                            }
+                        }
                     }
                 }
-            } message: {
-                Text("This will remove all saved settings for \(keyboard.name) and reload current values from the device.")
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color(nsColor: .controlBackgroundColor))
+                )
+            } else {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        showResetConfirm = true
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.counterclockwise")
+                            .font(.system(size: 10))
+                        Text("Clear Saved Settings")
+                            .font(.system(size: 12))
+                    }
+                    .foregroundStyle(.red)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.vertical, 10)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(resetHovered
+                                ? Color(nsColor: .selectedContentBackgroundColor).opacity(0.12)
+                                : Color(nsColor: .controlBackgroundColor))
+                    )
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .onHover { resetHovered = $0 }
             }
         }
         .padding(.vertical, 4)
@@ -682,39 +735,35 @@ struct KeyboardDetailView: View {
     }
 }
 
-// MARK: - Connection Info Row
+// MARK: - Reset Action Button
 
-/// Shows transport type and protocol version for a device.
-private struct ConnectionInfoRow: View {
-    let device: LogiDevice
-    @Environment(DeviceManager.self) private var deviceManager
+/// Styled button for inline reset confirmation (Cancel / Clear).
+private struct ResetActionButton: View {
+    let label: String
+    let isDestructive: Bool
+    let action: () -> Void
+
+    @State private var isHovered = false
 
     var body: some View {
-        let transport = deviceManager.transportType(for: device)
-        row {
-            Text("Connection")
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
-                .frame(width: 80, alignment: .leading)
-
-            Spacer()
-
-            if let transport {
-                HStack(spacing: 4) {
-                    Image(systemName: transport == .ble ? "bolt.horizontal.fill" : "cable.connector")
-                        .font(.system(size: 9))
-                    Text(transport == .ble ? "Bluetooth LE" : "USB Receiver")
-                        .font(.system(size: 11))
-                }
-                .foregroundStyle(transport == .ble ? .blue : .secondary)
-            }
-
-            if device.protocolMajor > 0 {
-                Text("HID++ \(device.protocolMajor).\(device.protocolMinor)")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.tertiary)
-            }
+        Button(action: action) {
+            Text(label)
+                .font(.system(size: 12, weight: isDestructive ? .medium : .regular))
+                .foregroundStyle(isDestructive ? .red : .secondary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 6)
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(isHovered
+                            ? (isDestructive
+                                ? Color.red.opacity(0.12)
+                                : Color(nsColor: .selectedContentBackgroundColor).opacity(0.12))
+                            : Color.clear)
+                )
+                .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
     }
 }
 

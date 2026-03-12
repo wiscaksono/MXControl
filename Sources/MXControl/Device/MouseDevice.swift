@@ -69,6 +69,27 @@ final class MouseDevice: LogiDevice, @unchecked Sendable {
         didSet { gestureEngine?.updateConfig(dragThreshold: gestureDragThreshold) }
     }
 
+    // MARK: - Smooth Scroll Settings (adjustable via UI, persisted)
+
+    /// Whether software smooth scrolling is enabled (intercepts scroll events via CGEventTap).
+    var smoothScrollEnabled: Bool = true {
+        didSet {
+            ScrollInterceptor.shared.isEnabled = smoothScrollEnabled
+        }
+    }
+    /// Scroll speed multiplier (1.0 = normal, 3.0 = default, 10.0 = max).
+    var smoothScrollSpeed: Double = 3.0 {
+        didSet {
+            ScrollInterceptor.shared.speedMultiplier = smoothScrollSpeed
+        }
+    }
+    /// Momentum decay factor (0.80 = short coast, 0.98 = long trackpad-like glide).
+    var smoothScrollMomentum: Double = 0.92 {
+        didSet {
+            ScrollInterceptor.shared.momentumDecay = smoothScrollMomentum
+        }
+    }
+
     // MARK: - Host Info
 
     var currentHostIndex: Int = 0

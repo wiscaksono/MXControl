@@ -2,28 +2,26 @@
 
 A native macOS menu bar app that controls Logitech MX devices. Built because Logi Options+ is a 500MB Electron app that needs its own login system, phones home constantly, shows you ads for other Logitech products inside a mouse driver, and somehow uses more RAM than Xcode. For a mouse. And a keyboard.
 
-MXControl is 1MB. It talks HID++ 2.0 directly to your devices. No account, no telemetry, no upsell banners, no "SmartActions" nobody asked for.
+MXControl is ~2MB. It talks HID++ 2.0 directly to your devices. No account, no telemetry, no upsell banners, no "SmartActions" nobody asked for.
 
 This entire thing was vibe coded. Claude wrote most of it. I pointed at things and said "fix that" until it worked. If it breaks, that's the risk you accept when a human and an LLM collectively decide they've had enough of Logi Options+.
 
 ## What it does
 
 **Mouse (MX Master 3S)**
-- DPI adjustment with live slider
-- SmartShift wheel mode (ratchet/free-spin), auto-disengage threshold, torque
-- Pointer speed scaling
-- Thumb wheel inversion
-- Button remapping (middle, back, forward, mode shift)
+- Smooth scroll with momentum (enabled by default, configurable speed/momentum)
+- SmartShift wheel mode (ratchet/free-spin) with auto-disengage
+- Natural scrolling and thumb wheel inversion
 - Thumb button gestures: click for Mission Control, hold+drag for workspace switching
-- Gesture tuning (click time, drag threshold)
 - Battery level and charging status
-- Host info (current host, host names, connection type)
+- Easy-Switch host info
+- Advanced: DPI, SmartShift force, scroll tuning, gesture thresholds
 
 **Keyboard (MX Keys Mini)**
 - Backlight toggle and brightness
 - Fn key inversion (media keys vs F1-F12)
 - Battery level and charging status
-- Host info
+- Easy-Switch host info
 
 **Transport**
 - USB via Bolt/Unifying receiver (auto-probes devices 1-6)
@@ -34,7 +32,7 @@ This entire thing was vibe coded. Claude wrote most of it. I pointed at things a
 - Native SwiftUI menu bar popover
 - Launch at login toggle
 - Settings persist and re-apply on reconnect
-- 1MB total, runs under 20MB RAM
+- ~2MB total, runs under 20MB RAM
 
 ## What it doesn't do
 
@@ -66,7 +64,7 @@ make dmg
 
 Needs macOS 15+ and Xcode command line tools. After first launch, go to System Settings and grant:
 - **Input Monitoring** (required for BLE HID device access)
-- **Accessibility** (required for gesture actions like Mission Control)
+- **Accessibility** (required for smooth scroll and gesture actions)
 
 ## Requirements
 

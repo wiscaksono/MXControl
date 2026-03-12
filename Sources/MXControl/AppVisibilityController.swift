@@ -43,6 +43,10 @@ final class AppVisibilityController: NSObject, NSApplicationDelegate {
         restoreMenuBarIconIfNeeded()
     }
 
+    func applicationWillTerminate(_ notification: Notification) {
+        ScrollInterceptor.shared.stop()
+    }
+
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         restoreMenuBarIconIfNeeded()
         return false

@@ -26,7 +26,8 @@ struct SliderRow: View {
                 Text(label)
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
-                    .frame(width: 60, alignment: .leading)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
 
                 Spacer()
 

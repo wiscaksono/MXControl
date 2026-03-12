@@ -79,6 +79,9 @@ enum SettingsStore {
         var buttonRemaps: [UInt16: UInt16]?  // CID -> target CID
         var gestureClickTimeLimit: Double?   // seconds (click-first time window)
         var gestureDragThreshold: Int?       // raw HID units
+        var smoothScrollEnabled: Bool?
+        var smoothScrollSpeed: Double?       // 1.0 - 10.0
+        var smoothScrollMomentum: Double?    // 0.80 - 0.98
     }
 
     /// Save mouse settings to UserDefaults.
@@ -104,6 +107,10 @@ enum SettingsStore {
 
         if let ct = settings.gestureClickTimeLimit { defaults.set(ct, forKey: k("gesture.click_time")) }
         if let dt = settings.gestureDragThreshold { defaults.set(dt, forKey: k("gesture.drag_threshold")) }
+
+        if let ssEnabled = settings.smoothScrollEnabled { defaults.set(ssEnabled, forKey: k("smooth_scroll.enabled")) }
+        if let ssSpeed = settings.smoothScrollSpeed { defaults.set(ssSpeed, forKey: k("smooth_scroll.speed")) }
+        if let ssMomentum = settings.smoothScrollMomentum { defaults.set(ssMomentum, forKey: k("smooth_scroll.momentum")) }
 
         logger.info("[SettingsStore] Saved settings for \(deviceName)")
     }
@@ -144,6 +151,16 @@ enum SettingsStore {
         }
         if defaults.object(forKey: k("gesture.drag_threshold")) != nil {
             settings.gestureDragThreshold = defaults.integer(forKey: k("gesture.drag_threshold"))
+        }
+
+        if defaults.object(forKey: k("smooth_scroll.enabled")) != nil {
+            settings.smoothScrollEnabled = defaults.bool(forKey: k("smooth_scroll.enabled"))
+        }
+        if defaults.object(forKey: k("smooth_scroll.speed")) != nil {
+            settings.smoothScrollSpeed = defaults.double(forKey: k("smooth_scroll.speed"))
+        }
+        if defaults.object(forKey: k("smooth_scroll.momentum")) != nil {
+            settings.smoothScrollMomentum = defaults.double(forKey: k("smooth_scroll.momentum"))
         }
 
         if let dict = defaults.dictionary(forKey: k("button_remaps")) as? [String: Int] {
@@ -212,7 +229,10 @@ enum SettingsStore {
             thumbWheelInverted: mouse.thumbWheelInverted,
             buttonRemaps: mouse.buttonRemaps.isEmpty ? nil : mouse.buttonRemaps,
             gestureClickTimeLimit: mouse.gestureClickTimeLimit,
-            gestureDragThreshold: mouse.gestureDragThreshold
+            gestureDragThreshold: mouse.gestureDragThreshold,
+            smoothScrollEnabled: mouse.smoothScrollEnabled,
+            smoothScrollSpeed: mouse.smoothScrollSpeed,
+            smoothScrollMomentum: mouse.smoothScrollMomentum
         )
         saveMouseSettings(settings, deviceName: mouse.name)
     }
@@ -282,6 +302,17 @@ enum SettingsStore {
         }
         if let dt = saved.gestureDragThreshold {
             mouse.gestureDragThreshold = dt
+        }
+
+        // Smooth scroll settings (applied to ScrollInterceptor, no HID++ write needed)
+        if let ssSpeed = saved.smoothScrollSpeed {
+            mouse.smoothScrollSpeed = ssSpeed
+        }
+        if let ssMomentum = saved.smoothScrollMomentum {
+            mouse.smoothScrollMomentum = ssMomentum
+        }
+        if let ssEnabled = saved.smoothScrollEnabled {
+            mouse.smoothScrollEnabled = ssEnabled
         }
 
         if failed == 0 {

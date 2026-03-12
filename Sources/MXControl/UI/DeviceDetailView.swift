@@ -50,6 +50,12 @@ struct MouseDetailView: View {
                         separator
                     }
 
+                    // Feature load error / connection warning
+                    if let error = mouse.featureLoadError {
+                        featureWarningBanner(error)
+                        separator
+                    }
+
                     // Wheel Mode picker (Ratchet / Free Spin)
                     if mouse.hasFeature(SmartShiftFeature.featureId) {
                         wheelModeSection
@@ -253,6 +259,21 @@ struct MouseDetailView: View {
         .padding(.vertical, 6)
     }
 
+    // MARK: - Feature Warning Banner
+
+    private func featureWarningBanner(_ error: String) -> some View {
+        HStack(alignment: .top, spacing: 6) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 10))
+                .foregroundStyle(.orange)
+            Text("Some features failed to load: \(error)")
+                .font(.system(size: 10))
+                .foregroundStyle(.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.vertical, 4)
+    }
+
     // MARK: - Smooth Scroll (toggle + accessibility warning only)
 
     private var smoothScrollSection: some View {
@@ -376,6 +397,18 @@ struct MouseDetailView: View {
                             .textCase(.uppercase)
                             .padding(.top, 6)
                             .padding(.bottom, 2)
+
+                        if !MacActions.hasAccessibilityPermission() {
+                            HStack(alignment: .top, spacing: 6) {
+                                Image(systemName: "exclamationmark.triangle")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(.orange)
+                                Text("Accessibility permission required for gestures.")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(.tertiary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
 
                         SliderRow(
                             label: "Click",

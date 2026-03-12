@@ -138,8 +138,26 @@ final class USBTransport: HIDTransport, @unchecked Sendable {
     /// UIDs of devices that have already fired their matched callback (dedup).
     private var notifiedDeviceUIDs: Set<String> = []
 
-    /// UIDs of BLE devices that failed to open (don't retry on re-enumeration).
-    private var failedBLEUIDs: Set<String> = []
+    /// BLE devices that failed IOHIDDeviceOpen but are registered for receive-only.
+    /// Maps UID → (IOHIDDevice, IOKitDeviceInfo, retryCount). The device pointer is
+    /// stored in `devicePtrToUID` so input report callbacks can still route to the
+    /// correct device, even though we can't send HID++ commands yet.
+    private var pendingBLEDevices: [String: (device: IOHIDDevice, info: IOKitDeviceInfo, retries: Int)] = [:]
+
+    /// Background retry timers for BLE devices that failed to open, keyed by UID.
+    private var bleRetryTimers: [String: DispatchSourceTimer] = [:]
+
+    /// Maximum retry attempts for IOHIDDeviceOpen on BLE (5s interval × 60 = 5 minutes).
+    private let bleRetryMaxAttempts = 60
+    private let bleRetryInterval: TimeInterval = 5.0
+
+    /// Called when a BLE device that was pending (receive-only) is successfully opened.
+    /// DeviceManager should run full HID++ initialization on this device.
+    var onBLEDeviceOpened: (@Sendable (IOKitDeviceInfo) -> Void)?
+
+    /// Called when a BLE device is re-acquired after an IOKit re-enumeration cycle.
+    /// DeviceManager should re-arm any volatile state (e.g., thumb button divert).
+    var onBLEDeviceReconnected: (@Sendable (String) -> Void)?
 
     /// Debounce timers for device removal, keyed by UID.
     private var removalDebounceTasks: [String: DispatchWorkItem] = [:]
@@ -264,6 +282,13 @@ final class USBTransport: HIDTransport, @unchecked Sendable {
         }
         removalDebounceTasks.removeAll()
         notifiedDeviceUIDs.removeAll()
+
+        // Cancel all BLE retry timers and clear pending devices
+        for (_, timer) in bleRetryTimers {
+            timer.cancel()
+        }
+        bleRetryTimers.removeAll()
+        pendingBLEDevices.removeAll()
     }
 
     /// Reset BLE device notification state so that `onBLEDeviceMatched` fires again
@@ -280,6 +305,13 @@ final class USBTransport: HIDTransport, @unchecked Sendable {
             if !bleUIDs.isEmpty {
                 debugLog("[USBTransport] Reset notified BLE UIDs for re-init: \(bleUIDs)")
             }
+        }
+        // Also cancel any active BLE retry timers (they'll be restarted on re-enumeration)
+        for uid in pendingBLEDevices.keys {
+            cancelBLERetry(uid: uid)
+        }
+        stateQueue.sync {
+            pendingBLEDevices.removeAll()
         }
     }
 
@@ -472,10 +504,15 @@ final class USBTransport: HIDTransport, @unchecked Sendable {
         let interfaceType = classifyInterface(device)
         guard let interfaceType else { return }
 
-        // Skip BLE devices that previously failed to open (TCC denied)
+        // If this BLE device is already pending (receive-only with retry in progress),
+        // attempt to open it again immediately instead of skipping.
         let rawUID = deviceUID(device)
-        if interfaceType == .ble && failedBLEUIDs.contains(rawUID) {
-            return
+        if interfaceType == .ble {
+            let isPending = stateQueue.sync { pendingBLEDevices[rawUID] != nil }
+            if isPending {
+                attemptBLEDeviceOpen(device, uid: rawUID, interfaceType: interfaceType)
+                return
+            }
         }
 
         let pid = rawPid
@@ -510,6 +547,8 @@ final class USBTransport: HIDTransport, @unchecked Sendable {
             stateQueue.sync {
                 // Remove old pointer → UID mapping (the old IOHIDDevice pointer is now invalid)
                 devicePtrToUID = devicePtrToUID.filter { $0.value != uid }
+                // Also clean up pending BLE state if it was in receive-only mode
+                pendingBLEDevices.removeValue(forKey: uid)
             }
         }
 
@@ -525,15 +564,15 @@ final class USBTransport: HIDTransport, @unchecked Sendable {
         // is NOT seized by the system event driver, so non-exclusive open should work.
         let openResult = IOHIDDeviceOpen(device, IOOptionBits(kIOHIDOptionsTypeNone))
         if openResult != kIOReturnSuccess {
-            if openResult == IOReturn(bitPattern: 0xE000_02E2) {
-                // kIOReturnExclusiveAccess — device truly locked by another driver
-                debugLog("[USBTransport] IOHIDDeviceOpen exclusive access for uid=\(uid) — marking failed")
-                if interfaceType == .ble { failedBLEUIDs.insert(uid) }
-            } else if openResult == IOReturn(bitPattern: 0xE000_02CD) {
-                // kIOReturnNotOpen — device not ready
-                debugLog("[USBTransport] IOHIDDeviceOpen not ready for uid=\(uid)")
+            if interfaceType == .ble {
+                // BLE: register for receive-only and start background retry
+                registerPendingBLEDevice(device, uid: uid, info: info, openResult: openResult)
             } else {
-                debugLog("[USBTransport] IOHIDDeviceOpen failed: 0x\(String(format: "%08X", openResult)) uid=\(uid)")
+                if openResult == IOReturn(bitPattern: 0xE000_02CD) {
+                    debugLog("[USBTransport] IOHIDDeviceOpen not ready for uid=\(uid)")
+                } else {
+                    debugLog("[USBTransport] IOHIDDeviceOpen failed: 0x\(String(format: "%08X", openResult)) uid=\(uid)")
+                }
             }
             return
         }
@@ -562,6 +601,10 @@ final class USBTransport: HIDTransport, @unchecked Sendable {
             case .ble:
                 onBLEDeviceMatched?(info)
             }
+        } else if isReEnumeration && interfaceType == .ble {
+            // BLE re-enumeration with successful open — re-arm volatile state (e.g., thumb divert)
+            debugLog("[USBTransport] BLE re-enumeration successful for uid=\(uid) — firing reconnected callback")
+            onBLEDeviceReconnected?(uid)
         }
     }
 
@@ -569,15 +612,40 @@ final class USBTransport: HIDTransport, @unchecked Sendable {
         let uid = deviceUID(device)
         let devicePtr = unsafeBitCast(device, to: Int.self)
 
-        let (isOurs, info) = stateQueue.sync {
-            let isOurs = openDevices[uid] != nil
+        let (isOpen, isPending, info) = stateQueue.sync {
+            let isOpen = openDevices[uid] != nil
+            let isPending = pendingBLEDevices[uid] != nil
             let info = deviceInfoMap[uid]
-            return (isOurs, info)
+            return (isOpen, isPending, info)
         }
 
-        debugLog("[USBTransport] Device removed: uid=\(uid) isOurs=\(isOurs) name=\(info?.name ?? "?")")
+        debugLog("[USBTransport] Device removed: uid=\(uid) isOpen=\(isOpen) isPending=\(isPending) name=\(info?.name ?? "?")")
 
-        guard isOurs, let info else { return }
+        // Handle pending BLE device removal (receive-only, retry in progress)
+        if isPending {
+            stateQueue.sync {
+                pendingBLEDevices.removeValue(forKey: uid)
+                devicePtrToUID.removeValue(forKey: devicePtr)
+                // Keep deviceInfoMap — device will likely reappear
+            }
+            // Don't cancel retry timer yet — let the debounce decide if truly removed
+            removalDebounceTasks[uid]?.cancel()
+            let debounceItem = DispatchWorkItem { [weak self] in
+                guard let self else { return }
+                debugLog("[USBTransport] BLE pending debounce expired for uid=\(uid) — truly removed")
+                self.cancelBLERetry(uid: uid)
+                self.stateQueue.sync {
+                    self.deviceInfoMap.removeValue(forKey: uid)
+                    self.notifiedDeviceUIDs.remove(uid)
+                }
+                self.removalDebounceTasks.removeValue(forKey: uid)
+            }
+            removalDebounceTasks[uid] = debounceItem
+            DispatchQueue.main.asyncAfter(deadline: .now() + bleRemovalDebounceDelay, execute: debounceItem)
+            return
+        }
+
+        guard isOpen, let info else { return }
 
         if info.transport == .ble {
             // BLE devices: IOKit re-enumerates them every few seconds.
@@ -740,10 +808,162 @@ final class USBTransport: HIDTransport, @unchecked Sendable {
                 // so we invoke the handler directly — no need to hop threads.
                 // The handler itself dispatches to @MainActor via Task if needed.
                 if let handler = self.notificationHandler {
-                    let uid = senderUID ?? "unknown"
+                    var uid = senderUID ?? "unknown"
+                    // Fallback: if senderUID is unknown (pointer not mapped during BLE re-enumeration),
+                    // try to infer the device from deviceInfoMap — BLE devices use deviceIndex=0x01.
+                    if uid == "unknown" {
+                        if let fallbackUID = self.deviceInfoMap.first(where: { $0.value.transport == .ble })?.key {
+                            debugLog("[USBTransport] Using fallback BLE UID \(fallbackUID) for unknown sender")
+                            uid = fallbackUID
+                        }
+                    }
                     handler(uid, response.deviceIndex, response.featureIndex, response.functionId, response.params)
                 }
             }
+        }
+    }
+
+    // MARK: - BLE Retry Logic
+
+    /// Register a BLE device for receive-only mode and start background retry.
+    /// Called when `IOHIDDeviceOpen` fails — the device pointer is still registered
+    /// in `devicePtrToUID` so input report callbacks can route to it.
+    private func registerPendingBLEDevice(_ device: IOHIDDevice, uid: String, info: IOKitDeviceInfo, openResult: IOReturn) {
+        let devicePtr = unsafeBitCast(device, to: Int.self)
+
+        let errorName: String
+        if openResult == IOReturn(bitPattern: 0xE000_02E2) {
+            errorName = "kIOReturnExclusiveAccess"
+        } else if openResult == IOReturn(bitPattern: 0xE000_02CD) {
+            errorName = "kIOReturnNotOpen"
+        } else {
+            errorName = String(format: "0x%08X", openResult)
+        }
+
+        debugLog("[USBTransport] BLE device open failed (\(errorName)) for uid=\(uid) — registering for receive-only + retry")
+        logger.warning("[USBTransport] BLE device \(info.name, privacy: .public) open failed (\(errorName, privacy: .public)) — retrying in background")
+
+        stateQueue.sync {
+            pendingBLEDevices[uid] = (device: device, info: info, retries: 0)
+            deviceInfoMap[uid] = info
+            devicePtrToUID[devicePtr] = uid
+        }
+
+        startBLERetryTimer(uid: uid)
+    }
+
+    /// Attempt to open a BLE device that was previously pending.
+    /// Called on re-enumeration (new IOHIDDevice pointer for same UID) or by retry timer.
+    private func attemptBLEDeviceOpen(_ device: IOHIDDevice, uid: String, interfaceType: TransportType?) {
+        let devicePtr = unsafeBitCast(device, to: Int.self)
+
+        let openResult = IOHIDDeviceOpen(device, IOOptionBits(kIOHIDOptionsTypeNone))
+        if openResult == kIOReturnSuccess {
+            debugLog("[USBTransport] BLE retry: device opened successfully for uid=\(uid)!")
+            logger.info("[USBTransport] BLE device opened after retry for uid=\(uid)")
+
+            // Promote from pending to fully open
+            let info = stateQueue.sync { () -> IOKitDeviceInfo? in
+                let entry = pendingBLEDevices.removeValue(forKey: uid)
+                openDevices[uid] = device
+                // Update pointer mapping (old pointer may be stale)
+                devicePtrToUID = devicePtrToUID.filter { $0.value != uid }
+                devicePtrToUID[devicePtr] = uid
+                return entry?.info ?? deviceInfoMap[uid]
+            }
+
+            cancelBLERetry(uid: uid)
+
+            if let info {
+                // Cancel any removal debounce
+                removalDebounceTasks[uid]?.cancel()
+                removalDebounceTasks.removeValue(forKey: uid)
+
+                let wasNotified = stateQueue.sync { notifiedDeviceUIDs.contains(uid) }
+                if !wasNotified {
+                    stateQueue.sync { _ = notifiedDeviceUIDs.insert(uid) }
+                    onBLEDeviceMatched?(info)
+                } else {
+                    // Device was already initialized once — fire the "opened" callback
+                    // so DeviceManager can re-initialize HID++ features
+                    onBLEDeviceOpened?(info)
+                }
+            }
+        } else {
+            // Still failing — update the device pointer (may have changed on re-enumeration)
+            stateQueue.sync {
+                devicePtrToUID = devicePtrToUID.filter { $0.value != uid }
+                devicePtrToUID[devicePtr] = uid
+                if var entry = pendingBLEDevices[uid] {
+                    entry.device = device
+                    pendingBLEDevices[uid] = entry
+                }
+            }
+            debugLog("[USBTransport] BLE retry: still failing for uid=\(uid) (0x\(String(format: "%08X", openResult)))")
+        }
+    }
+
+    /// Start a background timer that periodically retries IOHIDDeviceOpen for a BLE device.
+    private func startBLERetryTimer(uid: String) {
+        cancelBLERetry(uid: uid)
+
+        let timer = DispatchSource.makeTimerSource(queue: stateQueue)
+        timer.schedule(deadline: .now() + bleRetryInterval, repeating: bleRetryInterval)
+        timer.setEventHandler { [weak self] in
+            guard let self else { return }
+            guard let entry = self.pendingBLEDevices[uid] else {
+                self.cancelBLERetry(uid: uid)
+                return
+            }
+
+            let retryCount = entry.retries + 1
+            if retryCount > self.bleRetryMaxAttempts {
+                debugLog("[USBTransport] BLE retry exhausted (\(self.bleRetryMaxAttempts) attempts) for uid=\(uid)")
+                logger.warning("[USBTransport] BLE device \(entry.info.name, privacy: .public) retry exhausted after \(self.bleRetryMaxAttempts) attempts")
+                self.cancelBLERetry(uid: uid)
+                return
+            }
+
+            self.pendingBLEDevices[uid]?.retries = retryCount
+            debugLog("[USBTransport] BLE retry attempt \(retryCount)/\(self.bleRetryMaxAttempts) for uid=\(uid)")
+
+            let device = entry.device
+            let openResult = IOHIDDeviceOpen(device, IOOptionBits(kIOHIDOptionsTypeNone))
+            if openResult == kIOReturnSuccess {
+                debugLog("[USBTransport] BLE retry SUCCESS on attempt \(retryCount) for uid=\(uid)!")
+                logger.info("[USBTransport] BLE device \(entry.info.name, privacy: .public) opened on retry attempt \(retryCount)")
+
+                // Promote from pending to fully open
+                let devicePtr = unsafeBitCast(device, to: Int.self)
+                let info = entry.info
+                self.pendingBLEDevices.removeValue(forKey: uid)
+                self.openDevices[uid] = device
+                self.devicePtrToUID[devicePtr] = uid
+
+                // Cancel retry timer (must dispatch off stateQueue since cancelBLERetry may use it)
+                DispatchQueue.main.async { [weak self] in
+                    self?.cancelBLERetry(uid: uid)
+
+                    let wasNotified = self?.stateQueue.sync { self?.notifiedDeviceUIDs.contains(uid) } ?? false
+                    if !wasNotified {
+                        self?.stateQueue.sync { _ = self?.notifiedDeviceUIDs.insert(uid) }
+                        self?.onBLEDeviceMatched?(info)
+                    } else {
+                        self?.onBLEDeviceOpened?(info)
+                    }
+                }
+            }
+        }
+        bleRetryTimers[uid] = timer
+        timer.resume()
+        debugLog("[USBTransport] BLE retry timer started for uid=\(uid) (every \(bleRetryInterval)s, max \(bleRetryMaxAttempts) attempts)")
+    }
+
+    /// Cancel the retry timer for a BLE device.
+    private func cancelBLERetry(uid: String) {
+        if let timer = bleRetryTimers.removeValue(forKey: uid) {
+            timer.cancel()
+            debugLog("[USBTransport] BLE retry timer cancelled for uid=\(uid)")
         }
     }
 

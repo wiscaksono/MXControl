@@ -58,9 +58,6 @@ final class DeviceManager {
     /// BLE device UIDs that have been successfully initialized — prevents re-init on re-enumeration.
     private var initializedBLEUIDs: Set<String> = []
 
-    /// BLE device UIDs that permanently failed (e.g. exclusive access) — prevents retry spam.
-    private var failedBLEUIDs: Set<String> = []
-
     // MARK: - CoreBluetooth BLE (read-only: battery + device info)
 
     /// CoreBluetooth scanner for BLE Logitech devices.
@@ -130,6 +127,25 @@ final class DeviceManager {
             }
         }
 
+        // BLE device successfully opened after retry (was previously in receive-only mode)
+        t.onBLEDeviceOpened = { [weak self] info in
+            logger.info("[DeviceManager] BLE device opened after retry: \(info.name, privacy: .public)")
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                // Allow re-initialization by clearing the previous state
+                self.initializedBLEUIDs.remove(info.uid)
+                await self.initializeBLEDevice(info: info)
+            }
+        }
+
+        // BLE device re-acquired after IOKit re-enumeration — re-arm volatile state
+        t.onBLEDeviceReconnected = { [weak self] uid in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.handleBLEDeviceReconnected(uid: uid)
+            }
+        }
+
         Task {
             do {
                 try await t.open()
@@ -176,7 +192,6 @@ final class DeviceManager {
         deviceIdToUID.removeAll()
         initializingBLEUIDs.removeAll()
         initializedBLEUIDs.removeAll()
-        failedBLEUIDs.removeAll()
         BatteryNotifier.reset()
         isScanning = false
         statusMessage = "Stopped"
@@ -322,10 +337,6 @@ final class DeviceManager {
             debugLog("[DeviceManager] BLE IOKit skip \(info.name) — already initialized uid=\(info.uid)")
             return
         }
-        if failedBLEUIDs.contains(info.uid) {
-            debugLog("[DeviceManager] BLE IOKit skip \(info.name) — permanently failed uid=\(info.uid)")
-            return
-        }
 
         // Dedup: skip if same device name already found via USB
         if usbDeviceNames.contains(info.name) {
@@ -395,11 +406,10 @@ final class DeviceManager {
             }
 
         } catch HIDPPError.exclusiveAccess {
-            debugLog("[DeviceManager] BLE IOKit exclusive access for \(info.name) — macOS blocking direct HID access")
-            logger.warning("[DeviceManager] BLE device \(info.name, privacy: .public): exclusive access denied by macOS")
-            failedBLEUIDs.insert(info.uid)
+            debugLog("[DeviceManager] BLE IOKit exclusive access for \(info.name) — transport will retry in background")
+            logger.warning("[DeviceManager] BLE device \(info.name, privacy: .public): exclusive access denied — retry in progress")
             isScanning = false
-            statusMessage = "BLE access restricted by macOS"
+            statusMessage = "BLE access restricted — retrying..."
         } catch {
             debugLog("[DeviceManager] BLE IOKit init failed for \(info.name): \(error)")
             logger.warning("[DeviceManager] Failed to initialize BLE device \(info.name, privacy: .public): \(error.localizedDescription, privacy: .public)")
@@ -576,6 +586,31 @@ final class DeviceManager {
             stopBatteryRefresh()
         } else {
             updateStatus()
+        }
+    }
+
+    // MARK: - BLE Reconnection
+
+    /// Handle BLE device re-acquisition after IOKit re-enumeration.
+    /// Re-arms volatile state like thumb button divert that may be lost when the
+    /// BLE connection cycles. This is called when the device was already fully
+    /// initialized but the IOHIDDevice pointer changed.
+    private func handleBLEDeviceReconnected(uid: String) {
+        guard let deviceId = uidToDeviceId[uid] else {
+            debugLog("[DeviceManager] BLE reconnected for unknown uid=\(uid)")
+            return
+        }
+
+        guard let mouse = devices.first(where: { $0.id == deviceId }) as? MouseDevice else {
+            debugLog("[DeviceManager] BLE reconnected for uid=\(uid) but device is not a mouse")
+            return
+        }
+
+        debugLog("[DeviceManager] BLE reconnected for \(mouse.name) — re-arming thumb divert")
+        logger.info("[DeviceManager] BLE device \(mouse.name, privacy: .public) reconnected — re-arming divert")
+
+        Task {
+            await mouse.rearmThumbDivert()
         }
     }
 

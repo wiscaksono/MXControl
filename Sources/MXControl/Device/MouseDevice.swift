@@ -591,6 +591,55 @@ final class MouseDevice: LogiDevice, @unchecked Sendable {
         logger.info("[MouseDevice] Button CID \(controlId) remapped to \(target)")
     }
 
+    // MARK: - Re-arm Divert (BLE Reconnection)
+
+    /// Re-arm the thumb button divert after a BLE reconnection.
+    /// Called when the IOHIDDevice pointer changes due to IOKit re-enumeration.
+    /// The device firmware may have lost the volatile divert flag during the
+    /// BLE connection cycle, so we re-send the setCtrlIdReporting command.
+    func rearmThumbDivert() async {
+        guard let skIdx = specialKeysFeatureIndex else {
+            debugLog("[MouseDevice] rearmThumbDivert: no specialKeysFeatureIndex cached")
+            return
+        }
+
+        let thumbCID: UInt16 = SpecialKeysFeature.KnownCID.gestureButton.rawValue
+
+        // Find the thumb button in our cached controls list
+        guard let thumbButton = buttons.first(where: { $0.controlId == thumbCID }) else {
+            debugLog("[MouseDevice] rearmThumbDivert: thumb button CID 0x\(String(format: "%04X", thumbCID)) not in controls")
+            return
+        }
+
+        let hasRawXY = thumbButton.flags.contains(.rawXY)
+        let canPersist = thumbButton.flags.contains(.persistDivert)
+
+        do {
+            try await SpecialKeysFeature.setCtrlIdReporting(
+                transport: transport,
+                deviceIndex: deviceIndex,
+                featureIndex: skIdx,
+                controlId: thumbCID,
+                divert: true,
+                persistDivert: canPersist,
+                rawXY: hasRawXY
+            )
+            debugLog("[MouseDevice] rearmThumbDivert: SUCCESS (rawXY=\(hasRawXY) persist=\(canPersist))")
+            logger.info("[MouseDevice] Thumb button divert re-armed after BLE reconnection")
+
+            // Ensure gesture engine exists (should already from initial load)
+            if gestureEngine == nil {
+                let engine = GestureEngine(thumbCID: thumbCID)
+                engine.updateConfig(clickTimeLimit: gestureClickTimeLimit, dragThreshold: gestureDragThreshold)
+                gestureEngine = engine
+                debugLog("[MouseDevice] rearmThumbDivert: created new gesture engine")
+            }
+        } catch {
+            debugLog("[MouseDevice] rearmThumbDivert: FAILED — \(error)")
+            logger.warning("[MouseDevice] Failed to re-arm thumb divert: \(error.localizedDescription)")
+        }
+    }
+
     // MARK: - Notification Handling
 
     /// Handle an unsolicited HID++ notification from the device.

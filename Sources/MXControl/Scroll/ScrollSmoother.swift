@@ -60,6 +60,11 @@ final class ScrollSmoother: @unchecked Sendable {
 
     private var timer: DispatchSourceTimer?
 
+    /// Whether the high-frequency timer is currently running.
+    /// The timer starts on-demand when scroll input arrives and stops
+    /// automatically when the animation completes — zero wakeups while idle.
+    private var timerRunning: Bool = false
+
     /// Dedicated serial queue for the scroll timer (userInteractive for low latency).
     private let timerQueue = DispatchQueue(
         label: "com.mxcontrol.scroll.timer",
@@ -126,9 +131,10 @@ final class ScrollSmoother: @unchecked Sendable {
     }
 
     /// Re-query refresh rate and reschedule the timer with the new interval.
+    /// Only reschedules if the timer is currently running (on-demand model).
     private func rescheduleTimer() {
         updateTimerInterval()
-        guard let source = timer else { return }
+        guard timerRunning, let source = timer else { return }
         source.schedule(
             deadline: .now(),
             repeating: .nanoseconds(Int(timerIntervalNs)),
@@ -140,9 +146,46 @@ final class ScrollSmoother: @unchecked Sendable {
     // MARK: - Start / Stop
 
     func start() {
-        guard timer == nil else { return }
-
         updateTimerInterval()
+
+        // Register for display reconfiguration events (updates timer interval on monitor change).
+        // The timer itself is NOT started here — it starts on-demand when scroll input arrives.
+        CGDisplayRegisterReconfigurationCallback(
+            Self.displayReconfigCallback,
+            Unmanaged.passUnretained(self).toOpaque()
+        )
+
+        debugLog("[ScrollSmoother] Ready (on-demand timer, \(1_000_000_000 / timerIntervalNs)Hz)")
+    }
+
+    func stop() {
+        // Unregister display reconfiguration callback
+        CGDisplayRemoveReconfigurationCallback(
+            Self.displayReconfigCallback,
+            Unmanaged.passUnretained(self).toOpaque()
+        )
+
+        stopTimer()
+
+        withLock {
+            remainY = 0
+            remainX = 0
+            subPixelY = 0
+            subPixelX = 0
+            isAnimating = false
+            framesSinceInput = 0
+        }
+
+        debugLog("[ScrollSmoother] Stopped")
+    }
+
+    // MARK: - On-Demand Timer Lifecycle
+
+    /// Start the high-frequency timer. Called when scroll input arrives and no timer is running.
+    /// Must be called from a context where the caller has verified `timerRunning == false`.
+    private func startTimer() {
+        guard !timerRunning else { return }
+        timerRunning = true
 
         let source = DispatchSource.makeTimerSource(flags: .strict, queue: timerQueue)
         source.schedule(
@@ -156,35 +199,17 @@ final class ScrollSmoother: @unchecked Sendable {
         source.resume()
         timer = source
 
-        // Register for display reconfiguration events
-        CGDisplayRegisterReconfigurationCallback(
-            Self.displayReconfigCallback,
-            Unmanaged.passUnretained(self).toOpaque()
-        )
-
-        debugLog("[ScrollSmoother] Timer started (\(1_000_000_000 / timerIntervalNs)Hz)")
+        debugLog("[ScrollSmoother] Timer started on-demand (\(1_000_000_000 / timerIntervalNs)Hz)")
     }
 
-    func stop() {
-        // Unregister display reconfiguration callback
-        CGDisplayRemoveReconfigurationCallback(
-            Self.displayReconfigCallback,
-            Unmanaged.passUnretained(self).toOpaque()
-        )
-
+    /// Stop the high-frequency timer. Called when animation completes (no more scroll to process).
+    private func stopTimer() {
+        guard timerRunning else { return }
         timer?.cancel()
         timer = nil
+        timerRunning = false
 
-        withLock {
-            remainY = 0
-            remainX = 0
-            subPixelY = 0
-            subPixelX = 0
-            isAnimating = false
-            framesSinceInput = 0
-        }
-
-        debugLog("[ScrollSmoother] Stopped")
+        debugLog("[ScrollSmoother] Timer stopped (idle)")
     }
 
     // MARK: - Accumulate (called from CGEventTap thread)
@@ -214,7 +239,14 @@ final class ScrollSmoother: @unchecked Sendable {
         framesSinceInput = 0
         isAnimating = true
 
+        let needsTimer = !timerRunning
         os_unfair_lock_unlock(&lock)
+
+        // Start the timer outside the lock to avoid potential deadlock
+        // (startTimer touches DispatchSource which should not be called under os_unfair_lock)
+        if needsTimer {
+            startTimer()
+        }
     }
 
     // MARK: - Process Frame (called from timer queue at ~120Hz)
@@ -262,6 +294,8 @@ final class ScrollSmoother: @unchecked Sendable {
             subPixelX = 0
             isAnimating = false
             os_unfair_lock_unlock(&lock)
+            // Stop the timer — no more work to do. It will restart on next accumulate().
+            stopTimer()
             return
         }
 

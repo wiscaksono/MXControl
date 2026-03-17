@@ -77,6 +77,12 @@ final class ScrollSmoother: @unchecked Sendable {
     /// Fallback interval when display refresh rate can't be determined.
     private static let fallbackIntervalNs: UInt64 = 8_333_333  // 120Hz
 
+    /// Cached CGEventSource — reused across all frames to avoid creating kernel-side
+    /// resources (Mach ports, private event state tables) at 120Hz. Creating a new
+    /// CGEventSource per frame caused gradual memory growth as kernel cleanup lagged
+    /// behind allocation rate.
+    private var eventSource: CGEventSource?
+
     // MARK: - Constants
 
     /// Stop animating when remaining distance is below this (pixels).
@@ -93,6 +99,21 @@ final class ScrollSmoother: @unchecked Sendable {
         os_unfair_lock_lock(&lock)
         defer { os_unfair_lock_unlock(&lock) }
         return body()
+    }
+
+    // MARK: - Lifecycle
+
+    deinit {
+        // Safety net: unregister the display reconfiguration callback (which holds
+        // a raw Unmanaged pointer to self) and stop the timer to prevent dangling
+        // pointer dereference and resource leak.
+        CGDisplayRemoveReconfigurationCallback(
+            Self.displayReconfigCallback,
+            Unmanaged.passUnretained(self).toOpaque()
+        )
+        timer?.cancel()
+        timer = nil
+        eventSource = nil
     }
 
     // MARK: - Display Refresh Rate
@@ -167,6 +188,9 @@ final class ScrollSmoother: @unchecked Sendable {
 
         stopTimer()
 
+        // Release cached event source to free kernel resources
+        eventSource = nil
+
         withLock {
             remainY = 0
             remainX = 0
@@ -186,6 +210,7 @@ final class ScrollSmoother: @unchecked Sendable {
     private func startTimer() {
         guard !timerRunning else { return }
         timerRunning = true
+        DiagnosticCounters.incrementScrollTimerStart()
 
         let source = DispatchSource.makeTimerSource(flags: .strict, queue: timerQueue)
         source.schedule(
@@ -323,7 +348,13 @@ final class ScrollSmoother: @unchecked Sendable {
     // MARK: - Scroll Event Dispatch
 
     private func postScrollEvent(intY: Int32, intX: Int32, preciseY: Double, preciseX: Double) {
-        guard let source = CGEventSource(stateID: .privateState) else { return }
+        // Lazily create and cache the event source to avoid allocating kernel resources
+        // (Mach ports, private event state tables) on every frame at 120Hz.
+        if eventSource == nil {
+            eventSource = CGEventSource(stateID: .privateState)
+            logger.info("[ScrollSmoother] CGEventSource created (cached, reused for all future frames)")
+        }
+        guard let source = eventSource else { return }
 
         guard let event = CGEvent(
             scrollWheelEvent2Source: source,

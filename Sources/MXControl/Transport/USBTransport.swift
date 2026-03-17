@@ -165,6 +165,14 @@ final class USBTransport: HIDTransport, @unchecked Sendable {
     /// Longer debounce for BLE — IOKit re-enumerates BLE devices with gaps of 2-4 seconds.
     private let bleRemovalDebounceDelay: TimeInterval = 8.0
 
+    // MARK: - Lifecycle
+
+    deinit {
+        // Safety net: ensure all IOKit resources (IOHIDManager, open devices, timers,
+        // pending waiters) are released if close() was never called explicitly.
+        close()
+    }
+
     // MARK: - HIDTransport Protocol
 
     func open() async throws {
@@ -541,7 +549,8 @@ final class USBTransport: HIDTransport, @unchecked Sendable {
         if isReEnumeration {
             removalDebounceTasks[uid]?.cancel()
             removalDebounceTasks.removeValue(forKey: uid)
-            debugLog("[USBTransport] Re-enumeration detected for uid=\(uid) — re-acquiring silently")
+            DiagnosticCounters.incrementBLEReEnumeration()
+            debugLog("[USBTransport] Re-enumeration detected for uid=\(uid) — re-acquiring silently (cycle #\(DiagnosticCounters.bleReEnumerationCount))")
 
             // Clean up stale pointer mapping from the old IOHIDDevice instance
             stateQueue.sync {

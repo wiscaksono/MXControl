@@ -23,7 +23,9 @@ final class AppRuntime {
 
     let deviceManager = DeviceManager()
 
-    private init() {}
+    private init() {
+        MemoryMonitor.shared.start()
+    }
 }
 
 @MainActor

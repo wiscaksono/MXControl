@@ -365,6 +365,9 @@ final class ScrollSmoother: @unchecked Sendable {
             wheel3: 0
         ) else { return }
 
+        // Apply current modifier flags so Cmd+Scroll = smooth zoom, etc.
+        event.flags = CGEventSource.flagsState(.combinedSessionState)
+
         // Set sub-pixel precision for apps that support it (e.g. Safari, native AppKit)
         event.setDoubleValueField(CGEventField.scrollWheelEventPointDeltaAxis1, value: preciseY)
         event.setDoubleValueField(CGEventField.scrollWheelEventPointDeltaAxis2, value: preciseX)

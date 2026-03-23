@@ -6,7 +6,7 @@ APP_BUNDLE := $(APP_NAME).app
 INSTALL_DIR := /Applications
 SIGNING_IDENTITY ?= Apple Development: wwicaksono96@gmail.com (UYQPA4SKQ3)
 
-.PHONY: build run bundle install dmg clean
+.PHONY: build run bundle install deploy dmg clean
 
 build:
 	swift build -c release
@@ -38,6 +38,14 @@ bundle: build
 install: bundle
 	@cp -R $(APP_BUNDLE) $(INSTALL_DIR)/$(APP_BUNDLE)
 	@echo "Installed to $(INSTALL_DIR)/$(APP_BUNDLE)"
+
+deploy: bundle
+	@echo "Deploying $(APP_NAME)..."
+	@-killall $(APP_NAME) 2>/dev/null && sleep 1 || true
+	@rm -rf $(INSTALL_DIR)/$(APP_BUNDLE)
+	@cp -R $(APP_BUNDLE) $(INSTALL_DIR)/$(APP_BUNDLE)
+	@open $(INSTALL_DIR)/$(APP_BUNDLE)
+	@echo "Deployed and launched $(APP_NAME)"
 
 dmg: bundle
 	@rm -f $(APP_NAME).dmg

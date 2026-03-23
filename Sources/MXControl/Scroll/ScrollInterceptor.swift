@@ -56,6 +56,12 @@ final class ScrollInterceptor: @unchecked Sendable {
         set { smoother.momentumDecay = newValue }
     }
 
+    /// Scroll wheel mode — ratchet (snappy) vs free-spin (glidy).
+    var wheelMode: ScrollWheelMode {
+        get { smoother.wheelMode }
+        set { smoother.wheelMode = newValue }
+    }
+
     // MARK: - Marker to Identify Synthetic Events
 
     /// Magic value set on eventSourceUserData to prevent re-entry.

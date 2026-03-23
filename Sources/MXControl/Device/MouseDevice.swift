@@ -84,7 +84,7 @@ final class MouseDevice: LogiDevice, @unchecked Sendable {
         }
     }
     /// Momentum decay factor (0.80 = short coast, 0.98 = long trackpad-like glide).
-    var smoothScrollMomentum: Double = 0.92 {
+    var smoothScrollMomentum: Double = 0.88 {
         didSet {
             ScrollInterceptor.shared.momentumDecay = smoothScrollMomentum
         }
@@ -258,6 +258,9 @@ final class MouseDevice: LogiDevice, @unchecked Sendable {
         smartShiftAutoDisengage = status.autoDisengage
         smartShiftActive = status.autoDisengage > 0
         smartShiftTorque = status.torque
+
+        // Sync scroll smoother with wheel mode for adaptive smoothing parameters
+        ScrollInterceptor.shared.wheelMode = status.wheelMode == .freeSpin ? .freeSpin : .ratchet
 
         logger.info("[MouseDevice] SmartShift: mode=\(status.wheelMode) ad=\(status.autoDisengage) torque=\(status.torque)")
     }
@@ -491,7 +494,10 @@ final class MouseDevice: LogiDevice, @unchecked Sendable {
             torque: torque
         )
 
-        if let mode = wheelMode { smartShiftWheelMode = mode }
+        if let mode = wheelMode {
+            smartShiftWheelMode = mode
+            ScrollInterceptor.shared.wheelMode = mode == .freeSpin ? .freeSpin : .ratchet
+        }
         if let ad = autoDisengage { smartShiftAutoDisengage = ad; smartShiftActive = ad > 0 }
         if let t = torque { smartShiftTorque = t }
 

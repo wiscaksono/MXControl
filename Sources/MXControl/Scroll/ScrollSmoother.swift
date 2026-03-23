@@ -1,6 +1,13 @@
 import CoreGraphics
 import os
 
+/// Scroll wheel mode hint — affects smoothing and momentum parameters.
+/// Ratchet mode uses snappier settings; free-spin mode uses glidier, longer-coast settings.
+enum ScrollWheelMode: Sendable {
+    case ratchet
+    case freeSpin
+}
+
 /// Smooth scroll engine using a high-frequency timer for interpolation.
 ///
 /// Receives raw scroll deltas from ScrollInterceptor and produces smooth,
@@ -27,15 +34,20 @@ final class ScrollSmoother: @unchecked Sendable {
 
     /// Momentum decay factor applied each frame after input stops.
     /// Higher = longer coast (0.80 = short, 0.98 = long trackpad-like glide).
-    private var _momentumDecay: Double = 0.92
+    private var _momentumDecay: Double = 0.88
     var momentumDecay: Double {
         get { withLock { _momentumDecay } }
         set { withLock { _momentumDecay = newValue } }
     }
 
-    /// Internal lerp factor per frame. Fixed constant — not user-facing.
-    /// Controls how quickly each frame approaches the remaining distance.
-    private let _smoothness: Double = 0.22
+    /// Scroll wheel mode — affects smoothness and momentum behavior.
+    /// Ratchet = snappier response; free-spin = glidier, longer coast.
+    /// Set by MouseDevice when SmartShift wheel mode changes.
+    private var _wheelMode: ScrollWheelMode = .ratchet
+    var wheelMode: ScrollWheelMode {
+        get { withLock { _wheelMode } }
+        set { withLock { _wheelMode = newValue } }
+    }
 
     // MARK: - Internal State (lock-protected)
 
@@ -87,6 +99,11 @@ final class ScrollSmoother: @unchecked Sendable {
 
     /// Stop animating when remaining distance is below this (pixels).
     private static let deadZone: Double = 0.1
+
+    /// Stop animating during momentum when remaining distance is below this (pixels).
+    /// Higher than deadZone to eliminate sub-pixel oscillation (0-1-0-1 jitter) in
+    /// the animation tail. The ~2px discarded at the end is imperceptible.
+    private static let momentumDeadZone: Double = 2.0
 
     /// Frames without input before we let the animation coast to a stop.
     /// Dynamically scaled based on refresh rate so the time window stays ~50ms.
@@ -287,31 +304,28 @@ final class ScrollSmoother: @unchecked Sendable {
         framesSinceInput += 1
         let inputStopped = framesSinceInput > self.inputStopFrames
 
+        // Wheel-mode-aware parameters:
+        // Ratchet  = snappier (higher smoothness factor, base momentum)
+        // Free-spin = glidier (lower smoothness factor, boosted momentum for longer coast)
+        let smoothness: Double = _wheelMode == .freeSpin ? 0.13 : 0.18
+        let effectiveDecay: Double = _wheelMode == .freeSpin
+            ? min(_momentumDecay + 0.06, 0.98)
+            : _momentumDecay
+
         // MOMENTUM PHASE: after input stops, decay the remaining buffer each frame.
         // This gives a natural "coast to stop" feel like trackpad inertia.
         if inputStopped {
-            remainY *= _momentumDecay
-            remainX *= _momentumDecay
+            remainY *= effectiveDecay
+            remainX *= effectiveDecay
         }
 
-        // Adaptive smoothness: for small remaining distances, increase the lerp factor
-        // so each frame emits at least ~1px. Prevents many near-zero frames that cause
-        // visible stutter during slow scrolling.
         let absRemainY = abs(remainY)
         let absRemainX = abs(remainX)
-        let adaptiveY = absRemainY > 1.0 ? _smoothness : max(_smoothness, min(1.0, 1.0 / max(absRemainY, 0.01)))
-        let adaptiveX = absRemainX > 1.0 ? _smoothness : max(_smoothness, min(1.0, 1.0 / max(absRemainX, 0.01)))
 
-        // Exponential interpolation with adaptive factor
-        let frameY = remainY * adaptiveY
-        let frameX = remainX * adaptiveX
-
-        // Subtract what we're about to emit
-        remainY -= frameY
-        remainX -= frameX
-
-        // Check if we're done
-        let isDead = absRemainY < Self.deadZone && absRemainX < Self.deadZone
+        // Check if we're done — use higher dead zone during momentum to eliminate
+        // sub-pixel oscillation (0-1-0-1 jitter) in the animation tail.
+        let effectiveDeadZone = inputStopped ? Self.momentumDeadZone : Self.deadZone
+        let isDead = absRemainY < effectiveDeadZone && absRemainX < effectiveDeadZone
         if isDead && inputStopped {
             remainY = 0
             remainX = 0
@@ -323,6 +337,20 @@ final class ScrollSmoother: @unchecked Sendable {
             stopTimer()
             return
         }
+
+        // Adaptive smoothness: for small remaining distances, increase the lerp factor
+        // so each frame emits at least ~1px. Prevents many near-zero frames that cause
+        // visible stutter during slow scrolling.
+        let adaptiveY = absRemainY > 1.0 ? smoothness : max(smoothness, min(1.0, 1.0 / max(absRemainY, 0.01)))
+        let adaptiveX = absRemainX > 1.0 ? smoothness : max(smoothness, min(1.0, 1.0 / max(absRemainX, 0.01)))
+
+        // Exponential interpolation with adaptive factor
+        let frameY = remainY * adaptiveY
+        let frameX = remainX * adaptiveX
+
+        // Subtract what we're about to emit
+        remainY -= frameY
+        remainX -= frameX
 
         // Sub-pixel accumulation: add fractional pixels to accumulator,
         // only emit the integer part. Carry remainder to next frame.

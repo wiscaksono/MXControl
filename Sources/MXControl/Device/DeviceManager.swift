@@ -664,31 +664,33 @@ final class DeviceManager {
     /// Set up notification routing from transports to the correct device.
     /// Unsolicited HID++ packets (diverted button events, rawXY, battery status changes)
     /// are forwarded to the appropriate device based on the device index in the packet.
+    /// Composite key for notification routing — avoids string allocation per packet.
+    private struct NotificationKey: Hashable {
+        let uid: String
+        let deviceIndex: UInt8
+    }
+
     private func setupNotificationRouting() {
         guard let transport else { return }
 
-        // Build a map from (senderUID + deviceIndex) → MouseDevice for routing
-        var mouseMap: [String: MouseDevice] = [:]  // "uid:deviceIndex" → MouseDevice
+        // Build a map from (senderUID, deviceIndex) → MouseDevice for routing
+        var mouseMap: [NotificationKey: MouseDevice] = [:]
 
         for device in devices {
             guard let mouse = device as? MouseDevice else { continue }
             if let uid = deviceIdToUID[device.id] {
                 let transportType = deviceTransportType[device.id]
-                if transportType == .usb {
-                    // USB: route by receiver UID + deviceIndex
-                    mouseMap["\(uid):\(mouse.deviceIndex)"] = mouse
-                } else {
-                    // BLE: route by device UID + deviceIndex (0x01)
-                    mouseMap["\(uid):\(mouse.deviceIndex)"] = mouse
+                mouseMap[NotificationKey(uid: uid, deviceIndex: mouse.deviceIndex)] = mouse
+                if transportType == .ble {
                     // BLE notifications arrive with deviceIndex=0xFF (broadcast/self-address)
-                    mouseMap["\(uid):255"] = mouse
+                    mouseMap[NotificationKey(uid: uid, deviceIndex: 255)] = mouse
                 }
             }
         }
 
         // Snapshot hi-res scroll feature indices for fast-path routing on the transport thread.
         // These are read-only after setup, so capturing by value is safe.
-        var hiResScrollIndices: [String: UInt8] = [:]  // key → featureIndex
+        var hiResScrollIndices: [NotificationKey: UInt8] = [:]
         for (key, mouse) in mouseMap {
             if let hrIdx = mouse.hiResScrollFeatureIndex {
                 hiResScrollIndices[key] = hrIdx
@@ -696,7 +698,7 @@ final class DeviceManager {
         }
 
         transport.notificationHandler = { [mouseMap, hiResScrollIndices] senderUID, deviceIndex, featureIndex, functionId, params in
-            let key = "\(senderUID):\(deviceIndex)"
+            let key = NotificationKey(uid: senderUID, deviceIndex: deviceIndex)
 
             // Fast path: hi-res scroll data → process directly on transport thread.
             // Avoids @MainActor scheduling latency which causes heavy/sluggish scroll feel.

@@ -19,7 +19,7 @@ struct MXControlApp: App {
             img = loaded
         } else {
             // Fallback to SF Symbol if resource not found
-            img = NSImage(systemSymbolName: "computermouse.fill", accessibilityDescription: "MXControl")!
+            img = NSImage(systemSymbolName: "computermouse.fill", accessibilityDescription: "MXControl") ?? NSImage()
         }
         img.isTemplate = true
         img.size = NSSize(width: 18, height: 18)
@@ -89,7 +89,7 @@ struct MenuBarView: View {
            let loaded = NSImage(contentsOf: url) {
             img = loaded
         } else {
-            img = NSImage(systemSymbolName: "computermouse.fill", accessibilityDescription: "MXControl")!
+            img = NSImage(systemSymbolName: "computermouse.fill", accessibilityDescription: "MXControl") ?? NSImage()
         }
         img.isTemplate = true
         img.size = NSSize(width: 14, height: 14)

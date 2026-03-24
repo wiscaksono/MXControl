@@ -19,9 +19,9 @@ final class ScrollInterceptor: @unchecked Sendable {
 
     // MARK: - State
 
-    /// Lock protecting `_isEnabled` and `_hiResActive` which are written from @MainActor
-    /// but read from the CGEventTap background thread.
-    private var flagLock = os_unfair_lock_s()
+    /// Lock protecting flags that are written from @MainActor but read from
+    /// the CGEventTap / transport background threads.
+    private let flagLock = OSAllocatedUnfairLock()
 
     private var _isRunning = false
     var isRunning: Bool { _isRunning }
@@ -37,15 +37,9 @@ final class ScrollInterceptor: @unchecked Sendable {
     /// Whether smooth scrolling is enabled. When false, events pass through unmodified.
     private var _isEnabled = false
     var isEnabled: Bool {
-        get {
-            os_unfair_lock_lock(&flagLock)
-            defer { os_unfair_lock_unlock(&flagLock) }
-            return _isEnabled
-        }
+        get { flagLock.withLock { _isEnabled } }
         set {
-            os_unfair_lock_lock(&flagLock)
-            _isEnabled = newValue
-            os_unfair_lock_unlock(&flagLock)
+            flagLock.withLock { _isEnabled = newValue }
             if newValue && !_isRunning {
                 start()
             } else if !newValue && _isRunning {
@@ -76,29 +70,32 @@ final class ScrollInterceptor: @unchecked Sendable {
     /// CGEventTap suppresses vertical mouse scroll events without feeding them to the smoother.
     private var _hiResActive: Bool = false
     var hiResActive: Bool {
-        get {
-            os_unfair_lock_lock(&flagLock)
-            defer { os_unfair_lock_unlock(&flagLock) }
-            return _hiResActive
-        }
-        set {
-            os_unfair_lock_lock(&flagLock)
-            _hiResActive = newValue
-            os_unfair_lock_unlock(&flagLock)
-        }
+        get { flagLock.withLock { _hiResActive } }
+        set { flagLock.withLock { _hiResActive = newValue } }
     }
 
     /// Hi-res pixels per tick, set by MouseDevice after loading device capabilities.
     /// Default: 15.0 / 15 = 1.0 (MX Master 3S multiplier = 15).
-    var hiResPixelsPerTick: Double = 1.0
+    private var _hiResPixelsPerTick: Double = 1.0
+    var hiResPixelsPerTick: Double {
+        get { flagLock.withLock { _hiResPixelsPerTick } }
+        set { flagLock.withLock { _hiResPixelsPerTick = newValue } }
+    }
 
     // MARK: - Hi-Res Scroll Acceleration
 
-    /// Recent scroll event timestamps for acceleration calculation.
-    /// Tracks events within the acceleration window to estimate scroll speed.
-    private var recentScrollTimestamps: [UInt64] = []
+    /// Fixed-size ring buffer for tracking scroll event timestamps (acceleration calculation).
+    /// Avoids per-event heap allocation from Array append/removeAll.
+    private let ringCapacity = 64
+    private var timestampRing = [UInt64](repeating: 0, count: 64)
+    private var ringHead: Int = 0
+    private var ringCount: Int = 0
     /// Acceleration window in nanoseconds (100ms). Events older than this are pruned.
     private let accelerationWindow: UInt64 = 100_000_000
+
+    /// Cached macOS "Natural Scrolling" preference. Updated via DistributedNotificationCenter
+    /// to avoid hitting UserDefaults on every scroll event.
+    private var _isNaturalScroll: Bool = true
 
     /// Fast-path handler for hi-res scroll data. Called directly from the transport
     /// thread (IOKit input report callback) to avoid @MainActor scheduling latency.
@@ -111,10 +108,15 @@ final class ScrollInterceptor: @unchecked Sendable {
     func handleHiResScroll(deltaV: Int16, hiRes: Bool) {
         let now = mach_absolute_time()
 
-        // Track event rate for acceleration — prune events outside the window
-        recentScrollTimestamps.append(now)
-        recentScrollTimestamps.removeAll { now &- $0 > accelerationWindow }
-        let eventRate = Double(recentScrollTimestamps.count)
+        // Ring buffer: append timestamp, prune expired entries from head
+        let writeIdx = (ringHead + ringCount) % ringCapacity
+        timestampRing[writeIdx] = now
+        if ringCount < ringCapacity { ringCount += 1 } else { ringHead = (ringHead + 1) % ringCapacity }
+        while ringCount > 0 && (now &- timestampRing[ringHead]) > accelerationWindow {
+            ringHead = (ringHead + 1) % ringCapacity
+            ringCount -= 1
+        }
+        let eventRate = Double(ringCount)
 
         // Acceleration curve: maps event rate to multiplier.
         // ~1-2 events/100ms (slow) → 1.2x, ~30+ events (fast) → 4.0x cap
@@ -124,10 +126,10 @@ final class ScrollInterceptor: @unchecked Sendable {
         //               Use line-based pixel conversion, don't divide by multiplier.
         // hiRes=true  → delta is in hi-res ticks (free-spin, many per notch).
         //               Use tick-based conversion (already divided by multiplier).
-        let basePx = hiRes ? hiResPixelsPerTick : 30.0
+        let ppt = flagLock.withLock { _hiResPixelsPerTick }
+        let basePx = hiRes ? ppt : 30.0
 
-        let isNatural = UserDefaults.standard.bool(forKey: "com.apple.swipescrolldirection")
-        let scrollY = Double(deltaV) * basePx * acceleration * (isNatural ? -1.0 : 1.0)
+        let scrollY = Double(deltaV) * basePx * acceleration * (_isNaturalScroll ? -1.0 : 1.0)
         smoother.accumulate(deltaY: scrollY, deltaX: 0)
     }
 
@@ -139,7 +141,18 @@ final class ScrollInterceptor: @unchecked Sendable {
 
     // MARK: - Init
 
-    private init() {}
+    private init() {
+        // Cache macOS natural scrolling preference and observe changes.
+        // Avoids hitting UserDefaults on every scroll event (hundreds/sec in free-spin).
+        _isNaturalScroll = UserDefaults.standard.bool(forKey: "com.apple.swipescrolldirection")
+        DistributedNotificationCenter.default().addObserver(
+            forName: .init("SwipeScrollDirectionDidChangeNotification"),
+            object: nil,
+            queue: nil
+        ) { [weak self] _ in
+            self?._isNaturalScroll = UserDefaults.standard.bool(forKey: "com.apple.swipescrolldirection")
+        }
+    }
 
     // MARK: - Start / Stop
 

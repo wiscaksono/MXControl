@@ -1089,7 +1089,7 @@ final class USBTransport: HIDTransport, @unchecked Sendable {
                 throw HIDPPError.timeout
             }
 
-            let result = try await group.next()!
+            guard let result = try await group.next() else { throw HIDPPError.timeout }
             group.cancelAll()
             return result
         }

@@ -53,7 +53,7 @@ final class GestureEngine: @unchecked Sendable {
     }
 
     private var state: State = .idle
-    private var pressTime: Date = .distantPast
+    private var pressTime: ContinuousClock.Instant = .now
     private var accumulatedDeltaX: Int = 0
     private var accumulatedDeltaY: Int = 0
 
@@ -93,14 +93,15 @@ final class GestureEngine: @unchecked Sendable {
     func handleButtonEvent(pressedCIDs: [UInt16]) {
         let isThumbPressed = pressedCIDs.contains(thumbCID)
 
+        var action: (() -> Void)?
+
         lock.lock()
-        defer { lock.unlock() }
 
         switch state {
         case .idle:
             if isThumbPressed {
                 state = .pending
-                pressTime = Date()
+                pressTime = .now
                 accumulatedDeltaX = 0
                 accumulatedDeltaY = 0
                 debugLog("[GestureEngine] Thumb button PRESSED → PENDING")
@@ -108,16 +109,13 @@ final class GestureEngine: @unchecked Sendable {
 
         case .pending:
             if !isThumbPressed {
-                let elapsed = Date().timeIntervalSince(pressTime)
-                let totalDelta = abs(accumulatedDeltaX)
-                debugLog("[GestureEngine] Thumb button RELEASED in PENDING (elapsed=\(String(format: "%.3f", elapsed))s deltaX=\(accumulatedDeltaX) |dx|=\(totalDelta))")
+                let elapsed = ContinuousClock.now - pressTime
+                debugLog("[GestureEngine] Thumb button RELEASED in PENDING (elapsed=\(elapsed) deltaX=\(accumulatedDeltaX))")
 
                 // If we're still in PENDING at release, gesture never fired → always click.
                 debugLog("[GestureEngine] → CLICK → Mission Control")
                 state = .idle
-                lock.unlock()
-                onClick()
-                lock.lock()
+                action = onClick
             }
 
         case .gesture:
@@ -126,6 +124,9 @@ final class GestureEngine: @unchecked Sendable {
                 state = .idle
             }
         }
+
+        lock.unlock()
+        action?()
     }
 
     /// Handle raw XY movement data while thumb button is held.
@@ -133,49 +134,45 @@ final class GestureEngine: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
 
+        var action: (() -> Void)?
+
         guard state == .pending else { return }
 
         accumulatedDeltaX += Int(deltaX)
         accumulatedDeltaY += Int(deltaY)
 
         // Time-gate: don't check drag threshold until click time window has passed
-        let elapsed = Date().timeIntervalSince(pressTime)
-        guard elapsed >= clickTimeLimit else { return }
+        let elapsed = ContinuousClock.now - pressTime
+        guard elapsed >= .milliseconds(Int(clickTimeLimit * 1000)) else { return }
 
         let absDX = abs(accumulatedDeltaX)
         let absDY = abs(accumulatedDeltaY)
 
         // Whichever axis exceeds the threshold first wins (prevents diagonal confusion)
         if absDX >= dragThreshold && absDX >= absDY {
-            // Horizontal gesture: workspace switch
             if accumulatedDeltaX < 0 {
                 debugLog("[GestureEngine] DRAG LEFT (dx=\(accumulatedDeltaX)) → Workspace RIGHT")
                 state = .gesture
-                lock.unlock()
-                onDragLeft()
-                lock.lock()
+                action = onDragLeft
             } else {
                 debugLog("[GestureEngine] DRAG RIGHT (dx=\(accumulatedDeltaX)) → Workspace LEFT")
                 state = .gesture
-                lock.unlock()
-                onDragRight()
-                lock.lock()
+                action = onDragRight
             }
         } else if absDY >= dragThreshold && absDY > absDX {
-            // Vertical gesture: up = Mission Control, down = App Exposé
             if accumulatedDeltaY < 0 {
                 debugLog("[GestureEngine] DRAG UP (dy=\(accumulatedDeltaY)) → Mission Control")
                 state = .gesture
-                lock.unlock()
-                onDragUp()
-                lock.lock()
+                action = onDragUp
             } else {
                 debugLog("[GestureEngine] DRAG DOWN (dy=\(accumulatedDeltaY)) → App Exposé")
                 state = .gesture
-                lock.unlock()
-                onDragDown()
-                lock.lock()
+                action = onDragDown
             }
         }
+
+        lock.unlock()
+        action?()
+        lock.lock()
     }
 }

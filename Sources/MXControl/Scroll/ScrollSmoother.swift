@@ -51,7 +51,7 @@ final class ScrollSmoother: @unchecked Sendable {
 
     // MARK: - Internal State (lock-protected)
 
-    private var lock = os_unfair_lock_s()
+    private let lock = OSAllocatedUnfairLock()
 
     /// Remaining scroll distance to animate (target delta, decays to 0).
     private var remainY: Double = 0
@@ -113,8 +113,8 @@ final class ScrollSmoother: @unchecked Sendable {
 
     @inline(__always)
     private func withLock<T>(_ body: () -> T) -> T {
-        os_unfair_lock_lock(&lock)
-        defer { os_unfair_lock_unlock(&lock) }
+        lock.lock()
+        defer { lock.unlock() }
         return body()
     }
 
@@ -223,10 +223,11 @@ final class ScrollSmoother: @unchecked Sendable {
     // MARK: - On-Demand Timer Lifecycle
 
     /// Start the high-frequency timer. Called when scroll input arrives and no timer is running.
-    /// Must be called from a context where the caller has verified `timerRunning == false`.
     private func startTimer() {
-        guard !timerRunning else { return }
+        lock.lock()
+        guard !timerRunning else { lock.unlock(); return }
         timerRunning = true
+        lock.unlock()
         DiagnosticCounters.incrementScrollTimerStart()
 
         let source = DispatchSource.makeTimerSource(flags: .strict, queue: timerQueue)
@@ -246,10 +247,12 @@ final class ScrollSmoother: @unchecked Sendable {
 
     /// Stop the high-frequency timer. Called when animation completes (no more scroll to process).
     private func stopTimer() {
-        guard timerRunning else { return }
+        lock.lock()
+        guard timerRunning else { lock.unlock(); return }
+        timerRunning = false
+        lock.unlock()
         timer?.cancel()
         timer = nil
-        timerRunning = false
 
         debugLog("[ScrollSmoother] Timer stopped (idle)")
     }
@@ -257,7 +260,7 @@ final class ScrollSmoother: @unchecked Sendable {
     // MARK: - Accumulate (called from CGEventTap thread)
 
     func accumulate(deltaY: Double, deltaX: Double) {
-        os_unfair_lock_lock(&lock)
+        lock.lock()
 
         let scaledY = deltaY * _speedMultiplier
         let scaledX = deltaX * _speedMultiplier
@@ -282,7 +285,7 @@ final class ScrollSmoother: @unchecked Sendable {
         isAnimating = true
 
         let needsTimer = !timerRunning
-        os_unfair_lock_unlock(&lock)
+        lock.unlock()
 
         // Start the timer outside the lock to avoid potential deadlock
         // (startTimer touches DispatchSource which should not be called under os_unfair_lock)
@@ -294,10 +297,10 @@ final class ScrollSmoother: @unchecked Sendable {
     // MARK: - Process Frame (called from timer queue at ~120Hz)
 
     private func processFrame() {
-        os_unfair_lock_lock(&lock)
+        lock.lock()
 
         guard isAnimating else {
-            os_unfair_lock_unlock(&lock)
+            lock.unlock()
             return
         }
 
@@ -334,7 +337,7 @@ final class ScrollSmoother: @unchecked Sendable {
             subPixelY = 0
             subPixelX = 0
             isAnimating = false
-            os_unfair_lock_unlock(&lock)
+            lock.unlock()
             // Stop the timer — no more work to do. It will restart on next accumulate().
             stopTimer()
             return
@@ -366,7 +369,7 @@ final class ScrollSmoother: @unchecked Sendable {
         subPixelY -= emitY
         subPixelX -= emitX
 
-        os_unfair_lock_unlock(&lock)
+        lock.unlock()
 
         // Only post if we have at least 1 integer pixel to emit on either axis
         if emitY == 0 && emitX == 0 { return }

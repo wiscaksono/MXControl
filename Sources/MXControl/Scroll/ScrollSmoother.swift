@@ -34,7 +34,7 @@ final class ScrollSmoother: @unchecked Sendable {
 
     /// Momentum decay factor applied each frame after input stops.
     /// Higher = longer coast (0.80 = short, 0.98 = long trackpad-like glide).
-    private var _momentumDecay: Double = 0.88
+    private var _momentumDecay: Double = 0.92
     var momentumDecay: Double {
         get { withLock { _momentumDecay } }
         set { withLock { _momentumDecay = newValue } }
@@ -307,7 +307,9 @@ final class ScrollSmoother: @unchecked Sendable {
         // Wheel-mode-aware parameters:
         // Ratchet  = snappier (higher smoothness factor, base momentum)
         // Free-spin = glidier (lower smoothness factor, boosted momentum for longer coast)
-        let smoothness: Double = _wheelMode == .freeSpin ? 0.13 : 0.18
+        // With HID++ hi-res input (8× data points), smoothness can be higher since
+        // the input data is naturally smooth — no need for aggressive low values.
+        let smoothness: Double = _wheelMode == .freeSpin ? 0.16 : 0.22
         let effectiveDecay: Double = _wheelMode == .freeSpin
             ? min(_momentumDecay + 0.06, 0.98)
             : _momentumDecay
@@ -396,9 +398,13 @@ final class ScrollSmoother: @unchecked Sendable {
         // Apply current modifier flags so Cmd+Scroll = smooth zoom, etc.
         event.flags = CGEventSource.flagsState(.combinedSessionState)
 
-        // Set sub-pixel precision for apps that support it (e.g. Safari, native AppKit)
+        // Set sub-pixel precision for apps that support it (e.g. Safari, native AppKit).
+        // Set both PointDelta and FixedPtDelta for maximum app compatibility —
+        // some apps read PointDelta, others read FixedPtDelta.
         event.setDoubleValueField(CGEventField.scrollWheelEventPointDeltaAxis1, value: preciseY)
         event.setDoubleValueField(CGEventField.scrollWheelEventPointDeltaAxis2, value: preciseX)
+        event.setDoubleValueField(CGEventField.scrollWheelEventFixedPtDeltaAxis1, value: preciseY)
+        event.setDoubleValueField(CGEventField.scrollWheelEventFixedPtDeltaAxis2, value: preciseX)
 
         // Mark as continuous (pixel-based) so apps treat it like trackpad input
         event.setDoubleValueField(CGEventField.scrollWheelEventIsContinuous, value: 1.0)

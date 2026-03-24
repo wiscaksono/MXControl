@@ -197,6 +197,18 @@ final class DeviceManager {
         statusMessage = "Stopped"
     }
 
+    // MARK: - Scroll Target Reset
+
+    /// Reset HiResScroll target to HID mode on all connected mice.
+    /// Called during app termination to ensure the scroll wheel works via macOS after exit.
+    func resetScrollTargetForAllMice() async {
+        for device in devices {
+            if let mouse = device as? MouseDevice {
+                await mouse.setHiResScrollTarget(false)
+            }
+        }
+    }
+
     // MARK: - USB Receiver Probe
 
     /// Probe device indices 1-6 on the receiver to find connected devices.
@@ -606,11 +618,15 @@ final class DeviceManager {
             return
         }
 
-        debugLog("[DeviceManager] BLE reconnected for \(mouse.name) — re-arming thumb divert")
-        logger.info("[DeviceManager] BLE device \(mouse.name, privacy: .public) reconnected — re-arming divert")
+        debugLog("[DeviceManager] BLE reconnected for \(mouse.name) — re-arming volatile state")
+        logger.info("[DeviceManager] BLE device \(mouse.name, privacy: .public) reconnected — re-arming divert + scroll target")
 
         Task {
             await mouse.rearmThumbDivert()
+            // Re-arm HID++ scroll target mode (volatile flag lost during BLE reconnect)
+            if mouse.smoothScrollEnabled {
+                await mouse.setHiResScrollTarget(true)
+            }
         }
     }
 
@@ -670,11 +686,30 @@ final class DeviceManager {
             }
         }
 
-        transport.notificationHandler = { [mouseMap] senderUID, deviceIndex, featureIndex, functionId, params in
-            debugLog("[DeviceManager] Notification: sender=\(senderUID) dev=\(deviceIndex) feat=\(String(format: "0x%02X", featureIndex)) func=\(functionId)")
+        // Snapshot hi-res scroll feature indices for fast-path routing on the transport thread.
+        // These are read-only after setup, so capturing by value is safe.
+        var hiResScrollIndices: [String: UInt8] = [:]  // key → featureIndex
+        for (key, mouse) in mouseMap {
+            if let hrIdx = mouse.hiResScrollFeatureIndex {
+                hiResScrollIndices[key] = hrIdx
+            }
+        }
+
+        transport.notificationHandler = { [mouseMap, hiResScrollIndices] senderUID, deviceIndex, featureIndex, functionId, params in
             let key = "\(senderUID):\(deviceIndex)"
+
+            // Fast path: hi-res scroll data → process directly on transport thread.
+            // Avoids @MainActor scheduling latency which causes heavy/sluggish scroll feel.
+            // smoother.accumulate() is lock-protected and safe to call from any thread.
+            if let hrIdx = hiResScrollIndices[key], featureIndex == hrIdx, functionId == 0x00 {
+                if let movement = HiResScrollFeature.parseWheelMovement(params: params) {
+                    ScrollInterceptor.shared.handleHiResScroll(deltaV: movement.deltaV, hiRes: movement.hiRes)
+                }
+                return
+            }
+
+            // Regular path for non-scroll notifications (buttons, ratchet switch, etc.)
             if let mouse = mouseMap[key] {
-                // Dispatch to MainActor since MouseDevice is @MainActor isolated
                 Task { @MainActor in
                     mouse.handleNotification(featureIndex: featureIndex, functionId: functionId, params: params)
                 }

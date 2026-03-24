@@ -19,6 +19,10 @@ final class ScrollInterceptor: @unchecked Sendable {
 
     // MARK: - State
 
+    /// Lock protecting `_isEnabled` and `_hiResActive` which are written from @MainActor
+    /// but read from the CGEventTap background thread.
+    private var flagLock = os_unfair_lock_s()
+
     private var _isRunning = false
     var isRunning: Bool { _isRunning }
 
@@ -33,9 +37,15 @@ final class ScrollInterceptor: @unchecked Sendable {
     /// Whether smooth scrolling is enabled. When false, events pass through unmodified.
     private var _isEnabled = false
     var isEnabled: Bool {
-        get { _isEnabled }
+        get {
+            os_unfair_lock_lock(&flagLock)
+            defer { os_unfair_lock_unlock(&flagLock) }
+            return _isEnabled
+        }
         set {
+            os_unfair_lock_lock(&flagLock)
             _isEnabled = newValue
+            os_unfair_lock_unlock(&flagLock)
             if newValue && !_isRunning {
                 start()
             } else if !newValue && _isRunning {
@@ -60,6 +70,65 @@ final class ScrollInterceptor: @unchecked Sendable {
     var wheelMode: ScrollWheelMode {
         get { smoother.wheelMode }
         set { smoother.wheelMode = newValue }
+    }
+
+    /// When true, scroll data comes from HID++ hi-res notifications instead of CGEvent.
+    /// CGEventTap suppresses vertical mouse scroll events without feeding them to the smoother.
+    private var _hiResActive: Bool = false
+    var hiResActive: Bool {
+        get {
+            os_unfair_lock_lock(&flagLock)
+            defer { os_unfair_lock_unlock(&flagLock) }
+            return _hiResActive
+        }
+        set {
+            os_unfair_lock_lock(&flagLock)
+            _hiResActive = newValue
+            os_unfair_lock_unlock(&flagLock)
+        }
+    }
+
+    /// Hi-res pixels per tick, set by MouseDevice after loading device capabilities.
+    /// Default: 15.0 / 15 = 1.0 (MX Master 3S multiplier = 15).
+    var hiResPixelsPerTick: Double = 1.0
+
+    // MARK: - Hi-Res Scroll Acceleration
+
+    /// Recent scroll event timestamps for acceleration calculation.
+    /// Tracks events within the acceleration window to estimate scroll speed.
+    private var recentScrollTimestamps: [UInt64] = []
+    /// Acceleration window in nanoseconds (100ms). Events older than this are pruned.
+    private let accelerationWindow: UInt64 = 100_000_000
+
+    /// Fast-path handler for hi-res scroll data. Called directly from the transport
+    /// thread (IOKit input report callback) to avoid @MainActor scheduling latency.
+    ///
+    /// Applies scroll acceleration to compensate for missing macOS acceleration
+    /// (which is bypassed in HID++ target mode). The acceleration curve uses
+    /// input event rate as a proxy for scroll speed:
+    ///   - Slow scroll (few events/100ms) → ~1x (no boost)
+    ///   - Fast scroll (many events/100ms) → up to ~4x amplification
+    func handleHiResScroll(deltaV: Int16, hiRes: Bool) {
+        let now = mach_absolute_time()
+
+        // Track event rate for acceleration — prune events outside the window
+        recentScrollTimestamps.append(now)
+        recentScrollTimestamps.removeAll { now &- $0 > accelerationWindow }
+        let eventRate = Double(recentScrollTimestamps.count)
+
+        // Acceleration curve: maps event rate to multiplier.
+        // ~1-2 events/100ms (slow) → 1.2x, ~30+ events (fast) → 4.0x cap
+        let acceleration = 1.0 + min(eventRate / 10.0, 3.0)
+
+        // hiRes=false → delta is in logical lines (ratchet mode, 1 per notch).
+        //               Use line-based pixel conversion, don't divide by multiplier.
+        // hiRes=true  → delta is in hi-res ticks (free-spin, many per notch).
+        //               Use tick-based conversion (already divided by multiplier).
+        let basePx = hiRes ? hiResPixelsPerTick : 30.0
+
+        let isNatural = UserDefaults.standard.bool(forKey: "com.apple.swipescrolldirection")
+        let scrollY = Double(deltaV) * basePx * acceleration * (isNatural ? -1.0 : 1.0)
+        smoother.accumulate(deltaY: scrollY, deltaX: 0)
     }
 
     // MARK: - Marker to Identify Synthetic Events
@@ -214,10 +283,20 @@ private func scrollEventCallback(
         return Unmanaged.passUnretained(event)
     }
 
-    // Use integer line deltas — these are consistent across all mice and
-    // macOS acceleration settings. Scale to pixels (1 line ≈ 10px matches
-    // macOS default scroll distance). The speed multiplier in ScrollSmoother
-    // provides user-configurable scaling on top.
+    // HID++ hi-res mode: vertical scroll data comes from device notifications, not CGEvent.
+    // Suppress vertical scroll events, but pass through horizontal-only events (thumb wheel)
+    // since the thumb wheel (0x2150) does not support HID++ target mode.
+    if interceptor.hiResActive {
+        let lineY = event.getIntegerValueField(.scrollWheelEventDeltaAxis1)
+        if lineY != 0 {
+            // Vertical scroll — suppress (data arriving via HID++ notifications)
+            return nil
+        }
+        // Horizontal-only (thumb wheel) — fall through to process normally
+    }
+
+    // Fallback: use integer line deltas when hi-res mode is not active.
+    // Scale to pixels (1 line ≈ 10px matches macOS default scroll distance).
     let lineY = Double(event.getIntegerValueField(.scrollWheelEventDeltaAxis1))
     let lineX = Double(event.getIntegerValueField(.scrollWheelEventDeltaAxis2))
 

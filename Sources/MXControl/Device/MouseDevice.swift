@@ -35,6 +35,10 @@ final class MouseDevice: LogiDevice, @unchecked Sendable {
 
     var hiResEnabled: Bool = false
     var hiResInverted: Bool = false         // Natural scrolling
+    /// Cached HiResScroll (0x2121) feature index for notification routing.
+    var hiResScrollFeatureIndex: UInt8?
+    /// Hi-res multiplier (e.g., 8 = 8 ticks per notch). From getWheelCapability().
+    var hiResMultiplier: Int = 8
 
     // MARK: - Pointer Speed State
 
@@ -71,10 +75,19 @@ final class MouseDevice: LogiDevice, @unchecked Sendable {
 
     // MARK: - Smooth Scroll Settings (adjustable via UI, persisted)
 
-    /// Whether software smooth scrolling is enabled (intercepts scroll events via CGEventTap).
+    /// In-flight task for toggling HID++ target mode. Cancelled on rapid re-toggle
+    /// to ensure the final device state matches the last user intent.
+    private var hiResTargetTask: Task<Void, Never>?
+
+    /// Whether software smooth scrolling is enabled.
+    /// When enabled, scroll data is received directly from the device via HID++ hi-res
+    /// notifications (8× resolution) instead of macOS CGEvent integer line deltas.
     var smoothScrollEnabled: Bool = true {
         didSet {
             ScrollInterceptor.shared.isEnabled = smoothScrollEnabled
+            // Cancel any in-flight toggle to prevent out-of-order completion
+            hiResTargetTask?.cancel()
+            hiResTargetTask = Task { await setHiResScrollTarget(smoothScrollEnabled) }
         }
     }
     /// Scroll speed multiplier (1.0 = normal, 3.0 = default, 10.0 = max).
@@ -84,7 +97,7 @@ final class MouseDevice: LogiDevice, @unchecked Sendable {
         }
     }
     /// Momentum decay factor (0.80 = short coast, 0.98 = long trackpad-like glide).
-    var smoothScrollMomentum: Double = 0.88 {
+    var smoothScrollMomentum: Double = 0.92 {
         didSet {
             ScrollInterceptor.shared.momentumDecay = smoothScrollMomentum
         }
@@ -274,6 +287,18 @@ final class MouseDevice: LogiDevice, @unchecked Sendable {
             deviceIndex: deviceIndex
         )
 
+        // Cache feature index for notification routing
+        hiResScrollFeatureIndex = idx
+
+        // Get hi-res multiplier (e.g., 8 for MX Master 3S)
+        let caps = try await HiResScrollFeature.getWheelCapability(
+            transport: transport,
+            deviceIndex: deviceIndex,
+            featureIndex: idx
+        )
+        hiResMultiplier = max(caps.multiplier, 1)
+        ScrollInterceptor.shared.hiResPixelsPerTick = 15.0 / Double(hiResMultiplier)
+
         let mode = try await HiResScrollFeature.getWheelMode(
             transport: transport,
             deviceIndex: deviceIndex,
@@ -283,7 +308,36 @@ final class MouseDevice: LogiDevice, @unchecked Sendable {
         hiResEnabled = mode.hiRes
         hiResInverted = mode.inverted
 
-        logger.info("[MouseDevice] HiRes: enabled=\(mode.hiRes) inverted=\(mode.inverted)")
+        // If smooth scroll is enabled, activate HID++ target mode for hi-res notifications
+        if smoothScrollEnabled {
+            await setHiResScrollTarget(true)
+        }
+
+        logger.info("[MouseDevice] HiRes: enabled=\(mode.hiRes) inverted=\(mode.inverted) multiplier=\(self.hiResMultiplier) target=\(self.smoothScrollEnabled)")
+    }
+
+    /// Enable or disable HID++ target mode for hi-res scroll data.
+    /// When enabled, scroll events are sent as HID++ notifications (8× resolution)
+    /// instead of through the standard macOS HID pipeline.
+    func setHiResScrollTarget(_ enabled: Bool) async {
+        guard let idx = hiResScrollFeatureIndex else { return }
+        do {
+            try await HiResScrollFeature.setWheelMode(
+                transport: transport,
+                deviceIndex: deviceIndex,
+                featureIndex: idx,
+                target: enabled,
+                hiRes: true,
+                inverted: hiResInverted
+            )
+            ScrollInterceptor.shared.hiResActive = enabled
+            logger.info("[MouseDevice] HiRes target set to \(enabled ? "HID++" : "HID")")
+        } catch {
+            // Always force hiResActive off on failure to prevent the CGEventTap from
+            // suppressing scroll events while the device state is unknown.
+            ScrollInterceptor.shared.hiResActive = false
+            logger.warning("[MouseDevice] Failed to set HiRes target: \(error.localizedDescription)")
+        }
     }
 
     // MARK: - Pointer Speed
@@ -507,6 +561,7 @@ final class MouseDevice: LogiDevice, @unchecked Sendable {
     // MARK: - Write: Set Hi-Res Scroll
 
     /// Write hi-res scroll settings to device.
+    /// Preserves the current HID++ target mode when smooth scroll is active.
     func setHiResScroll(hiRes: Bool, inverted: Bool) async throws {
         let idx = try await featureIndexCache.resolve(
             featureId: HiResScrollFeature.featureId,
@@ -518,13 +573,14 @@ final class MouseDevice: LogiDevice, @unchecked Sendable {
             transport: transport,
             deviceIndex: deviceIndex,
             featureIndex: idx,
+            target: smoothScrollEnabled,  // preserve HID++ target when smooth scroll is on
             hiRes: hiRes,
             inverted: inverted
         )
 
         hiResEnabled = hiRes
         hiResInverted = inverted
-        logger.info("[MouseDevice] HiRes set: enabled=\(hiRes) inverted=\(inverted)")
+        logger.info("[MouseDevice] HiRes set: enabled=\(hiRes) inverted=\(inverted) target=\(self.smoothScrollEnabled)")
     }
 
     // MARK: - Write: Set Pointer Speed
@@ -656,13 +712,26 @@ final class MouseDevice: LogiDevice, @unchecked Sendable {
     ///   - functionId: The function/event ID within the feature.
     ///   - params: The notification payload bytes.
     func handleNotification(featureIndex: UInt8, functionId: UInt8, params: [UInt8]) {
-        debugLog("[MouseDevice] handleNotification: feat=\(String(format: "0x%02X", featureIndex)) func=\(functionId) engine=\(gestureEngine != nil) skIdx=\(specialKeysFeatureIndex.map { String(format: "0x%02X", $0) } ?? "nil")")
-        guard let engine = gestureEngine, let skIdx = specialKeysFeatureIndex else {
-            debugLog("[MouseDevice] handleNotification: SKIPPED (engine=\(gestureEngine != nil) skIdx=\(specialKeysFeatureIndex != nil))")
+        // HiResScroll (0x2121) notifications — ratchet switch and other non-scroll events.
+        // Note: wheelMovement (event 0) is handled via the fast path in DeviceManager's
+        // notification handler (directly on transport thread, bypassing @MainActor).
+        if let hrIdx = hiResScrollFeatureIndex, featureIndex == hrIdx {
+            if functionId == 0x01 {
+                // Event 1: ratchetSwitch — wheel mode changed (SmartShift auto-switch)
+                if let isRatchet = HiResScrollFeature.parseRatchetSwitch(params: params) {
+                    let mode: SmartShiftFeature.WheelMode = isRatchet ? .ratchet : .freeSpin
+                    smartShiftWheelMode = mode
+                    ScrollInterceptor.shared.wheelMode = isRatchet ? .ratchet : .freeSpin
+                    debugLog("[MouseDevice] Ratchet switch: \(mode)")
+                }
+            }
             return
         }
 
-        // Only handle SpecialKeys (0x1B04) notifications
+        // SpecialKeys (0x1B04) notifications — gesture/button events
+        guard let engine = gestureEngine, let skIdx = specialKeysFeatureIndex else {
+            return
+        }
         guard featureIndex == skIdx else { return }
 
         switch functionId {

@@ -37,18 +37,17 @@ struct HiResScrollFeatureTests {
 
     @Test func getWheelMode() async throws {
         let mock = MockHIDTransport()
-        // flags: hiRes=1, ratchet=0, inverted=1, target=0 -> 0x05
+        // flags: target=1, hiRes=1, inverted=1 -> 0x07
         mock.respond(featureIndex: 0x0A, functionId: 0x01,
-                     params: [0x05] + [UInt8](repeating: 0, count: 15))
+                     params: [0x07] + [UInt8](repeating: 0, count: 15))
 
         let mode = try await HiResScrollFeature.getWheelMode(
             transport: mock, deviceIndex: 0x01, featureIndex: 0x0A
         )
 
+        #expect(mode.target == true)
         #expect(mode.hiRes == true)
         #expect(mode.inverted == true)
-        #expect(mode.ratchet == false)
-        #expect(mode.target == false)
     }
 
     @Test func setWheelMode() async throws {
@@ -57,12 +56,12 @@ struct HiResScrollFeatureTests {
 
         try await HiResScrollFeature.setWheelMode(
             transport: mock, deviceIndex: 0x01, featureIndex: 0x0A,
-            hiRes: true, inverted: true, ratchet: true, target: true
+            target: true, hiRes: true, inverted: true
         )
 
         let sent = mock.sentRequests[0]
-        // hiRes(0x01) | ratchet(0x02) | inverted(0x04) | target(0x08) = 0x0F
-        #expect(sent.params[0] == 0x0F)
+        // target(0x01) | hiRes(0x02) | inverted(0x04) = 0x07
+        #expect(sent.params[0] == 0x07)
     }
 
     @Test func setWheelModeAllFalse() async throws {
@@ -73,6 +72,7 @@ struct HiResScrollFeatureTests {
             transport: mock, deviceIndex: 0x01, featureIndex: 0x0A,
             hiRes: false, inverted: false
         )
+
 
         let sent = mock.sentRequests[0]
         #expect(sent.params[0] == 0x00)

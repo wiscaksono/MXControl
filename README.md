@@ -2,14 +2,17 @@
 
 A native macOS menu bar app that controls Logitech MX devices. Built because Logi Options+ is a 500MB Electron app that needs its own login system, phones home constantly, shows you ads for other Logitech products inside a mouse driver, and somehow uses more RAM than Xcode. For a mouse. And a keyboard.
 
-MXControl is ~2MB. It talks HID++ 2.0 directly to your devices. No account, no telemetry, no upsell banners, no "SmartActions" nobody asked for.
+MXControl is ~2MB. It talks HID++ 2.0 directly to your devices, scroll data included. Logi Options+ still routes scroll through macOS and calls it a day. No account, no telemetry, no upsell banners, no "SmartActions" nobody asked for.
 
 This entire thing was vibe coded. Claude wrote most of it. I pointed at things and said "fix that" until it worked. If it breaks, that's the risk you accept when a human and an LLM collectively decide they've had enough of Logi Options+.
 
 ## What it does
 
 **Mouse (MX Master 3S)**
-- Smooth scroll with momentum (enabled by default, configurable speed/momentum)
+- Smooth scroll via HID++ hi-res data (15x resolution, skips the macOS scroll pipeline)
+- Scroll acceleration that actually matches trackpad feel
+- Wheel mode aware: snappy in ratchet, glidy in free-spin, auto-detects SmartShift switches
+- Cmd+scroll zoom works (Figma, Chrome, the usual suspects)
 - SmartShift wheel mode (ratchet/free-spin) with auto-disengage
 - Natural scrolling and thumb wheel inversion
 - Thumb button gestures: click for Mission Control, hold+drag for workspace switching

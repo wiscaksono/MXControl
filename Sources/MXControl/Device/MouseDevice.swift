@@ -54,6 +54,8 @@ final class MouseDevice: LogiDevice, @unchecked Sendable {
     var buttons: [SpecialKeysFeature.ControlInfo] = []
     /// Per-button remap targets: CID -> remapped target CID (0 = default).
     var buttonRemaps: [UInt16: UInt16] = [:]
+    /// Last pressed diverted CIDs from SpecialKeys event 0, for press-edge detection.
+    private var lastPressedDivertedCIDs: Set<UInt16> = []
 
     // MARK: - Gesture Engine
 
@@ -419,6 +421,9 @@ final class MouseDevice: LogiDevice, @unchecked Sendable {
 
         // Divert thumb button (CID 0x00C3) for gesture recognition
         await setupThumbButtonGesture(featureIndex: idx)
+
+        // Divert side buttons (CID 0x0053/0x0056) for global software back/forward fallback.
+        await setupSideButtonFallback(featureIndex: idx)
     }
 
     /// Divert the thumb/gesture button (CID 0x00C3) and set up the gesture engine.
@@ -463,6 +468,52 @@ final class MouseDevice: LogiDevice, @unchecked Sendable {
         } catch {
             logger.error("[MouseDevice] Failed to divert thumb button: \(error.localizedDescription)")
             debugLog("[MouseDevice] Failed to divert thumb button: \(error)")
+        }
+    }
+
+    /// Divert side buttons (Back/Forward) so we can post app-level navigation shortcuts.
+    private func setupSideButtonFallback(featureIndex: UInt8) async {
+        await divertSideButton(
+            controlId: SpecialKeysFeature.KnownCID.backButton.rawValue,
+            label: "Back",
+            featureIndex: featureIndex
+        )
+        await divertSideButton(
+            controlId: SpecialKeysFeature.KnownCID.forwardButton.rawValue,
+            label: "Forward",
+            featureIndex: featureIndex
+        )
+    }
+
+    private func divertSideButton(controlId: UInt16, label: String, featureIndex: UInt8) async {
+        guard let button = buttons.first(where: { $0.controlId == controlId }) else {
+            debugLog("[MouseDevice] \(label) button CID 0x\(String(format: "%04X", controlId)) not found in controls")
+            return
+        }
+
+        guard button.isDivertable else {
+            logger.info("[MouseDevice] \(label) button is not divertable")
+            return
+        }
+
+        let canPersist = button.flags.contains(.persistDivert)
+        let preservedRemap = buttonRemaps[controlId] ?? 0
+
+        do {
+            try await SpecialKeysFeature.setCtrlIdReporting(
+                transport: transport,
+                deviceIndex: deviceIndex,
+                featureIndex: featureIndex,
+                controlId: controlId,
+                divert: true,
+                persistDivert: canPersist,
+                remapTarget: preservedRemap
+            )
+            debugLog("[MouseDevice] \(label) button diverted (persist=\(canPersist) remap=\(preservedRemap))")
+            logger.info("[MouseDevice] \(label) side-button fallback armed")
+        } catch {
+            debugLog("[MouseDevice] Failed to divert \(label) button: \(error)")
+            logger.warning("[MouseDevice] Failed to divert \(label) button: \(error.localizedDescription)")
         }
     }
 
@@ -655,7 +706,7 @@ final class MouseDevice: LogiDevice, @unchecked Sendable {
 
     // MARK: - Re-arm Divert (BLE Reconnection)
 
-    /// Re-arm the thumb button divert after a BLE reconnection.
+    /// Re-arm diverted button state after a BLE reconnection.
     /// Called when the IOHIDDevice pointer changes due to IOKit re-enumeration.
     /// The device firmware may have lost the volatile divert flag during the
     /// BLE connection cycle, so we re-send the setCtrlIdReporting command.
@@ -696,6 +747,9 @@ final class MouseDevice: LogiDevice, @unchecked Sendable {
                 gestureEngine = engine
                 debugLog("[MouseDevice] rearmThumbDivert: created new gesture engine")
             }
+
+            // Re-arm side-button fallback in the same BLE cycle.
+            await setupSideButtonFallback(featureIndex: skIdx)
         } catch {
             debugLog("[MouseDevice] rearmThumbDivert: FAILED — \(error)")
             logger.warning("[MouseDevice] Failed to re-arm thumb divert: \(error.localizedDescription)")
@@ -728,8 +782,8 @@ final class MouseDevice: LogiDevice, @unchecked Sendable {
             return
         }
 
-        // SpecialKeys (0x1B04) notifications — gesture/button events
-        guard let engine = gestureEngine, let skIdx = specialKeysFeatureIndex else {
+        // SpecialKeys (0x1B04) notifications — button events + gesture events
+        guard let skIdx = specialKeysFeatureIndex else {
             return
         }
         guard featureIndex == skIdx else { return }
@@ -739,12 +793,23 @@ final class MouseDevice: LogiDevice, @unchecked Sendable {
             // Event 0: divertedButtonsEvent — button press/release
             let pressedCIDs = SpecialKeysFeature.parseDivertedButtonsEvent(params: params)
             debugLog("[MouseDevice] divertedButtonsEvent: \(pressedCIDs.map { String(format: "0x%04X", $0) })")
-            engine.handleButtonEvent(pressedCIDs: pressedCIDs)
+            let currentPressed = Set(pressedCIDs)
+            let newlyPressed = currentPressed.subtracting(lastPressedDivertedCIDs)
+            lastPressedDivertedCIDs = currentPressed
+
+            if newlyPressed.contains(SpecialKeysFeature.KnownCID.backButton.rawValue) {
+                MacActions.navigateBack()
+            }
+            if newlyPressed.contains(SpecialKeysFeature.KnownCID.forwardButton.rawValue) {
+                MacActions.navigateForward()
+            }
+
+            gestureEngine?.handleButtonEvent(pressedCIDs: pressedCIDs)
 
         case 0x01:
             // Event 1: rawXY — mouse movement while diverted button is held
             let (dx, dy) = SpecialKeysFeature.parseRawXYEvent(params: params)
-            engine.handleRawXY(deltaX: dx, deltaY: dy)
+            gestureEngine?.handleRawXY(deltaX: dx, deltaY: dy)
 
         default:
             break

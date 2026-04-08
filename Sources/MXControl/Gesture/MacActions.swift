@@ -48,6 +48,16 @@ enum MacActions {
         debugLog("[MacActions] Workspace Right triggered")
     }
 
+    /// Navigate back in the frontmost app using Cmd+[.
+    static func navigateBack() {
+        postCommandShortcut(keyCode: 0x21, label: "Back")  // kVK_ANSI_LeftBracket
+    }
+
+    /// Navigate forward in the frontmost app using Cmd+].
+    static func navigateForward() {
+        postCommandShortcut(keyCode: 0x1E, label: "Forward")  // kVK_ANSI_RightBracket
+    }
+
     // MARK: - Cooldown Helper
 
     /// Post a keyboard shortcut, respecting the workspace switch cooldown.
@@ -72,6 +82,7 @@ enum MacActions {
     /// 0x040000 = kCGEventFlagMaskControl
     /// 0x800000 = kCGEventFlagMaskSecondaryFn (arrow keys are fn keys)
     private static let arrowModifiers = CGEventFlags(rawValue: 0x840000)
+    private static let commandModifier = CGEventFlags.maskCommand
 
     private static func postKeyboardShortcut(keyCode: CGKeyCode) {
         guard AXIsProcessTrusted() else {
@@ -96,6 +107,35 @@ enum MacActions {
 
         keyDown.post(tap: .cghidEventTap)
         usleep(20_000)  // 20ms gap
+        keyUp.post(tap: .cghidEventTap)
+    }
+
+    private static func postCommandShortcut(keyCode: CGKeyCode, label: String) {
+        guard AXIsProcessTrusted() else {
+            debugLog("[MacActions] ERROR: Not trusted for accessibility")
+            return
+        }
+
+        guard let source = CGEventSource(stateID: .privateState) else {
+            debugLog("[MacActions] ERROR: Failed to create CGEventSource")
+            return
+        }
+
+        guard let keyDown = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: true),
+              let keyUp = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: false)
+        else {
+            debugLog("[MacActions] ERROR: Failed to create command event for keyCode 0x\(String(format: "%02X", keyCode))")
+            return
+        }
+
+        keyDown.flags = commandModifier
+        keyUp.flags = commandModifier
+
+        let bundle = NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "unknown"
+        debugLog("[MacActions] \(label) triggered (frontmost=\(bundle))")
+
+        keyDown.post(tap: .cghidEventTap)
+        usleep(20_000)
         keyUp.post(tap: .cghidEventTap)
     }
 

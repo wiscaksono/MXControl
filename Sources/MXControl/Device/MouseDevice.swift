@@ -473,6 +473,9 @@ final class MouseDevice: LogiDevice, @unchecked Sendable {
 
     /// Divert side buttons (Back/Forward) so we can post app-level navigation shortcuts.
     private func setupSideButtonFallback(featureIndex: UInt8) async {
+        // Side-button fallback also posts CGEvents, so request accessibility here too.
+        MacActions.requestAccessibilityPermission()
+
         await divertSideButton(
             controlId: SpecialKeysFeature.KnownCID.backButton.rawValue,
             label: "Back",
@@ -496,7 +499,6 @@ final class MouseDevice: LogiDevice, @unchecked Sendable {
             return
         }
 
-        let canPersist = button.flags.contains(.persistDivert)
         let preservedRemap = buttonRemaps[controlId] ?? 0
 
         do {
@@ -506,10 +508,12 @@ final class MouseDevice: LogiDevice, @unchecked Sendable {
                 featureIndex: featureIndex,
                 controlId: controlId,
                 divert: true,
-                persistDivert: canPersist,
+                // Keep side-button divert volatile so buttons recover automatically
+                // if MXControl is not running.
+                persistDivert: false,
                 remapTarget: preservedRemap
             )
-            debugLog("[MouseDevice] \(label) button diverted (persist=\(canPersist) remap=\(preservedRemap))")
+            debugLog("[MouseDevice] \(label) button diverted (persist=false remap=\(preservedRemap))")
             logger.info("[MouseDevice] \(label) side-button fallback armed")
         } catch {
             debugLog("[MouseDevice] Failed to divert \(label) button: \(error)")
@@ -716,6 +720,12 @@ final class MouseDevice: LogiDevice, @unchecked Sendable {
             return
         }
 
+        await rearmThumbGestureButton(featureIndex: skIdx)
+        // Re-arm side-button fallback independently, even if thumb re-arm fails.
+        await setupSideButtonFallback(featureIndex: skIdx)
+    }
+
+    private func rearmThumbGestureButton(featureIndex: UInt8) async {
         let thumbCID: UInt16 = SpecialKeysFeature.KnownCID.gestureButton.rawValue
 
         // Find the thumb button in our cached controls list
@@ -731,7 +741,7 @@ final class MouseDevice: LogiDevice, @unchecked Sendable {
             try await SpecialKeysFeature.setCtrlIdReporting(
                 transport: transport,
                 deviceIndex: deviceIndex,
-                featureIndex: skIdx,
+                featureIndex: featureIndex,
                 controlId: thumbCID,
                 divert: true,
                 persistDivert: canPersist,
@@ -747,11 +757,8 @@ final class MouseDevice: LogiDevice, @unchecked Sendable {
                 gestureEngine = engine
                 debugLog("[MouseDevice] rearmThumbDivert: created new gesture engine")
             }
-
-            // Re-arm side-button fallback in the same BLE cycle.
-            await setupSideButtonFallback(featureIndex: skIdx)
         } catch {
-            debugLog("[MouseDevice] rearmThumbDivert: FAILED — \(error)")
+            debugLog("[MouseDevice] rearmThumbDivert: FAILED - \(error)")
             logger.warning("[MouseDevice] Failed to re-arm thumb divert: \(error.localizedDescription)")
         }
     }

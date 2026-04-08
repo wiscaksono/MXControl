@@ -135,8 +135,9 @@ enum MacActions {
         debugLog("[MacActions] \(label) triggered (frontmost=\(bundle))")
 
         keyDown.post(tap: .cghidEventTap)
-        usleep(20_000)
-        keyUp.post(tap: .cghidEventTap)
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(20)) {
+            keyUp.post(tap: .cghidEventTap)
+        }
     }
 
     // MARK: - Accessibility Permission

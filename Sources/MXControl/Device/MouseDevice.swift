@@ -104,6 +104,12 @@ final class MouseDevice: LogiDevice, @unchecked Sendable {
             ScrollInterceptor.shared.momentumDecay = smoothScrollMomentum
         }
     }
+    /// Thumb wheel (side scroll) speed multiplier. Default 1.0, range 0.5–5.0.
+    var smoothScrollThumbSpeed: Double = 1.0 {
+        didSet {
+            ScrollInterceptor.shared.thumbSpeedMultiplier = smoothScrollThumbSpeed
+        }
+    }
 
     // MARK: - Host Info
 

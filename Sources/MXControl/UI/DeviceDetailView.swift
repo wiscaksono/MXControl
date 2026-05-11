@@ -42,8 +42,7 @@ struct MouseDetailView: View {
         if !mouse.isFeaturesLoaded {
             loadingView
         } else {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 0) {
                     // Battery
                     if mouse.hasFeature(BatteryFeature.featureId) {
                         batteryRow
@@ -97,9 +96,8 @@ struct MouseDetailView: View {
                     // Reset
                     resetSection
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
         }
     }
 
@@ -472,6 +470,19 @@ struct MouseDetailView: View {
                 }
                 save()
             }
+
+            if mouse.smoothScrollEnabled {
+                SliderRow(
+                    label: "Thumb Wheel Speed",
+                    value: $mouse.smoothScrollThumbSpeed,
+                    range: 0.5...5.0,
+                    step: 0.5,
+                    format: "%.1f",
+                    suffix: "x"
+                ) {
+                    save()
+                }
+            }
         }
         .padding(.vertical, 6)
     }
@@ -531,8 +542,7 @@ struct KeyboardDetailView: View {
             .frame(maxWidth: .infinity)
             .padding(.vertical, 20)
         } else {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 0) {
                     // Battery
                     if keyboard.hasFeature(BatteryFeature.featureId) {
                         batteryRow
@@ -560,9 +570,8 @@ struct KeyboardDetailView: View {
                     // Reset
                     resetSection
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
         }
     }
 

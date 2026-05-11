@@ -6,8 +6,7 @@ struct GeneralSettingsView: View {
     @Binding var hideAppUntilReopened: Bool
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 14) {
                 GeneralSettingsSection(title: "Startup") {
                     ToggleRow(
                         label: "Launch at login",
@@ -24,10 +23,8 @@ struct GeneralSettingsView: View {
                     )
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 12)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 12)
     }
 }
 

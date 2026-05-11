@@ -40,6 +40,15 @@ final class ScrollSmoother: @unchecked Sendable {
         set { withLock { _momentumDecay = newValue } }
     }
 
+    /// Thumb wheel (side scroll) speed multiplier. Applied to horizontal deltas
+    /// independently from the main scroll speed so the user can tune side scroll feel.
+    /// Default 1.0, range 0.5–5.0.
+    private var _thumbSpeedMultiplier: Double = 1.0
+    var thumbSpeedMultiplier: Double {
+        get { withLock { _thumbSpeedMultiplier } }
+        set { withLock { _thumbSpeedMultiplier = newValue } }
+    }
+
     /// Scroll wheel mode — affects smoothness and momentum behavior.
     /// Ratchet = snappier response; free-spin = glidier, longer coast.
     /// Set by MouseDevice when SmartShift wheel mode changes.
@@ -62,8 +71,11 @@ final class ScrollSmoother: @unchecked Sendable {
     private var subPixelY: Double = 0
     private var subPixelX: Double = 0
 
-    /// Frames since last real input — used to detect end of gesture.
-    private var framesSinceInput: Int = 0
+    /// Frames since last real input on each axis — detects end of gesture per axis.
+    /// Separating counters prevents fast vertical HID++ streams from masking
+    /// sparse horizontal thumb wheel input.
+    private var framesSinceInputY: Int = 0
+    private var framesSinceInputX: Int = 0
 
     /// Whether we have residual scroll to animate.
     private var isAnimating: Bool = false
@@ -104,6 +116,18 @@ final class ScrollSmoother: @unchecked Sendable {
     /// Higher than deadZone to eliminate sub-pixel oscillation (0-1-0-1 jitter) in
     /// the animation tail. The ~2px discarded at the end is imperceptible.
     private static let momentumDeadZone: Double = 2.0
+
+    /// Smoothness factor for horizontal (thumb wheel) scroll — much lower than
+    /// vertical because thumb wheel events arrive at ~20-50Hz (vs. ~1000Hz HID++).
+    /// Lower smoothness = each burst lasts more frames = bridges gaps between
+    /// sparse events. Tradeoff: feels heavier / more inertial.
+    /// Vertical: 0.16 (free-spin) / 0.22 (ratchet), Horizontal: 0.06
+    private let thumbSmoothness: Double = 0.06
+
+    /// Momentum decay for horizontal scroll — higher than vertical so the coast
+    /// tail persists longer and bridges the gap to the next thumb wheel event.
+    /// Vertical: 0.92 (ratchet) / 0.98 (free-spin), Horizontal: 0.99
+    private let thumbMomentumDecay: Double = 0.99
 
     /// Frames without input before we let the animation coast to a stop.
     /// Dynamically scaled based on refresh rate so the time window stays ~50ms.
@@ -214,7 +238,8 @@ final class ScrollSmoother: @unchecked Sendable {
             subPixelY = 0
             subPixelX = 0
             isAnimating = false
-            framesSinceInput = 0
+            framesSinceInputY = 0
+            framesSinceInputX = 0
         }
 
         debugLog("[ScrollSmoother] Stopped")
@@ -263,7 +288,7 @@ final class ScrollSmoother: @unchecked Sendable {
         lock.lock()
 
         let scaledY = deltaY * _speedMultiplier
-        let scaledX = deltaX * _speedMultiplier
+        let scaledX = deltaX * _thumbSpeedMultiplier
 
         // Direction change on Y — discard old residual for snappy reversal
         if scaledY != 0 && remainY != 0 && (scaledY > 0) != (remainY > 0) {
@@ -281,7 +306,11 @@ final class ScrollSmoother: @unchecked Sendable {
             remainX += scaledX
         }
 
-        framesSinceInput = 0
+        // Per-axis input counters — only reset the axis that received data.
+        // This prevents fast vertical HID++ streams from keeping the horizontal
+        // counter alive when thumb wheel input is sparse.
+        if scaledY != 0 { framesSinceInputY = 0 }
+        if scaledX != 0 { framesSinceInputX = 0 }
         isAnimating = true
 
         let needsTimer = !timerRunning
@@ -304,52 +333,61 @@ final class ScrollSmoother: @unchecked Sendable {
             return
         }
 
-        framesSinceInput += 1
-        let inputStopped = framesSinceInput > self.inputStopFrames
+        framesSinceInputY += 1
+        framesSinceInputX += 1
+        let inputStoppedY = framesSinceInputY > self.inputStopFrames
+        let inputStoppedX = framesSinceInputX > self.inputStopFrames
 
-        // Wheel-mode-aware parameters:
-        // Ratchet  = snappier (higher smoothness factor, base momentum)
-        // Free-spin = glidier (lower smoothness factor, boosted momentum for longer coast)
-        // With HID++ hi-res input (8× data points), smoothness can be higher since
-        // the input data is naturally smooth — no need for aggressive low values.
-        let smoothness: Double = _wheelMode == .freeSpin ? 0.16 : 0.22
-        let effectiveDecay: Double = _wheelMode == .freeSpin
+        // Vertical smoothness & momentum — unchanged, wheel-mode-aware.
+        let smoothnessY: Double = _wheelMode == .freeSpin ? 0.16 : 0.22
+        let effectiveDecayY: Double = _wheelMode == .freeSpin
             ? min(_momentumDecay + 0.06, 0.98)
             : _momentumDecay
 
-        // MOMENTUM PHASE: after input stops, decay the remaining buffer each frame.
-        // This gives a natural "coast to stop" feel like trackpad inertia.
-        if inputStopped {
-            remainY *= effectiveDecay
-            remainX *= effectiveDecay
+        // Horizontal (thumb wheel) smoothness & momentum — much lower smoothness
+        // so each burst lasts more frames, bridging the gap between sparse events
+        // (thumb wheel: ~20-50Hz CGEvent vs. main wheel: ~1000Hz HID++).
+        // Tradeoff: thumb wheel feels heavier / more inertial, but eliminates jitter.
+        let smoothnessX = thumbSmoothness       // 0.06
+        let effectiveDecayX = thumbMomentumDecay // 0.99
+
+        // Per-axis momentum phase: after input stops, decay the buffer.
+        if inputStoppedY {
+            remainY *= effectiveDecayY
+        }
+        if inputStoppedX {
+            remainX *= effectiveDecayX
         }
 
         let absRemainY = abs(remainY)
         let absRemainX = abs(remainX)
 
-        // Check if we're done — use higher dead zone during momentum to eliminate
-        // sub-pixel oscillation (0-1-0-1 jitter) in the animation tail.
-        let effectiveDeadZone = inputStopped ? Self.momentumDeadZone : Self.deadZone
-        let isDead = absRemainY < effectiveDeadZone && absRemainX < effectiveDeadZone
-        if isDead && inputStopped {
-            remainY = 0
-            remainX = 0
-            subPixelY = 0
-            subPixelX = 0
+        // Dead zone check — timer stops only when BOTH axes are dead
+        // AND BOTH axes have stopped receiving input.
+        let deadY = absRemainY < Self.momentumDeadZone && inputStoppedY
+        let deadX = absRemainX < Self.momentumDeadZone && inputStoppedX
+        if deadY { remainY = 0; subPixelY = 0 }
+        if deadX { remainX = 0; subPixelX = 0 }
+        if deadY && deadX {
             isAnimating = false
             lock.unlock()
-            // Stop the timer — no more work to do. It will restart on next accumulate().
             stopTimer()
             return
         }
 
-        // Adaptive smoothness: for small remaining distances, increase the lerp factor
-        // so each frame emits at least ~1px. Prevents many near-zero frames that cause
-        // visible stutter during slow scrolling.
-        let adaptiveY = absRemainY > 1.0 ? smoothness : max(smoothness, min(1.0, 1.0 / max(absRemainY, 0.01)))
-        let adaptiveX = absRemainX > 1.0 ? smoothness : max(smoothness, min(1.0, 1.0 / max(absRemainX, 0.01)))
+        // Input-phase dead zones (per-axis): zero out tiny residuals while still
+        // receiving input. This prevents the axis holding the timer alive with
+        // sub-pixel noise while the other axis is genuinely dormant.
+        if !inputStoppedY && absRemainY < Self.deadZone { remainY = 0; subPixelY = 0 }
+        if !inputStoppedX && absRemainX < Self.deadZone { remainX = 0; subPixelX = 0 }
 
-        // Exponential interpolation with adaptive factor
+        // Adaptive smoothness: for small remaining distances, increase the lerp
+        // factor so each frame emits at least ~1px. Prevents many near-zero
+        // frames that cause visible stutter during slow scrolling.
+        let adaptiveY = absRemainY > 1.0 ? smoothnessY : max(smoothnessY, min(1.0, 1.0 / max(absRemainY, 0.01)))
+        let adaptiveX = absRemainX > 1.0 ? smoothnessX : max(smoothnessX, min(1.0, 1.0 / max(absRemainX, 0.01)))
+
+        // Exponential interpolation with per-axis smoothness
         let frameY = remainY * adaptiveY
         let frameX = remainX * adaptiveX
 
@@ -359,7 +397,6 @@ final class ScrollSmoother: @unchecked Sendable {
 
         // Sub-pixel accumulation: add fractional pixels to accumulator,
         // only emit the integer part. Carry remainder to next frame.
-        // This preserves total scroll distance and eliminates jitter from rounding.
         subPixelY += frameY
         subPixelX += frameX
 

@@ -60,6 +60,13 @@ final class ScrollInterceptor: @unchecked Sendable {
         set { smoother.momentumDecay = newValue }
     }
 
+    /// Thumb wheel (side scroll) speed multiplier. Applied to horizontal deltas only.
+    /// Default 1.0, range 0.5–5.0.
+    var thumbSpeedMultiplier: Double {
+        get { smoother.thumbSpeedMultiplier }
+        set { smoother.thumbSpeedMultiplier = newValue }
+    }
+
     /// Scroll wheel mode — ratchet (snappy) vs free-spin (glidy).
     var wheelMode: ScrollWheelMode {
         get { smoother.wheelMode }

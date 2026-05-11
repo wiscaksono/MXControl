@@ -626,10 +626,9 @@ struct BLEDeviceDetailView: View {
     let info: BLEDeviceInfo
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 12) {
-                // Battery
-                if let battery = info.batteryLevel {
+        VStack(spacing: 12) {
+            // Battery
+            if let battery = info.batteryLevel {
                     VStack(spacing: 6) {
                         HStack {
                             Text("Battery")
@@ -686,8 +685,7 @@ struct BLEDeviceDetailView: View {
                 }
                 .padding(.horizontal, 12)
             }
-            .padding(.vertical, 10)
-        }
+        .padding(.vertical, 10)
     }
 
     private func infoRow(label: String, value: String) -> some View {

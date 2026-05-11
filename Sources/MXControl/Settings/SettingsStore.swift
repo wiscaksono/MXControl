@@ -82,6 +82,7 @@ enum SettingsStore {
         var smoothScrollEnabled: Bool?
         var smoothScrollSpeed: Double?       // 1.0 - 10.0
         var smoothScrollMomentum: Double?    // 0.80 - 0.98
+        var smoothScrollThumbSpeed: Double?  // 0.5 - 5.0
     }
 
     /// Save mouse settings to UserDefaults.
@@ -111,6 +112,7 @@ enum SettingsStore {
         if let ssEnabled = settings.smoothScrollEnabled { defaults.set(ssEnabled, forKey: k("smooth_scroll.enabled")) }
         if let ssSpeed = settings.smoothScrollSpeed { defaults.set(ssSpeed, forKey: k("smooth_scroll.speed")) }
         if let ssMomentum = settings.smoothScrollMomentum { defaults.set(ssMomentum, forKey: k("smooth_scroll.momentum")) }
+        if let ssThumbSpeed = settings.smoothScrollThumbSpeed { defaults.set(ssThumbSpeed, forKey: k("smooth_scroll.thumb_speed")) }
 
         logger.info("[SettingsStore] Saved settings for \(deviceName)")
     }
@@ -161,6 +163,9 @@ enum SettingsStore {
         }
         if defaults.object(forKey: k("smooth_scroll.momentum")) != nil {
             settings.smoothScrollMomentum = defaults.double(forKey: k("smooth_scroll.momentum"))
+        }
+        if defaults.object(forKey: k("smooth_scroll.thumb_speed")) != nil {
+            settings.smoothScrollThumbSpeed = defaults.double(forKey: k("smooth_scroll.thumb_speed"))
         }
 
         if let dict = defaults.dictionary(forKey: k("button_remaps")) as? [String: Int] {
@@ -232,7 +237,8 @@ enum SettingsStore {
             gestureDragThreshold: mouse.gestureDragThreshold,
             smoothScrollEnabled: mouse.smoothScrollEnabled,
             smoothScrollSpeed: mouse.smoothScrollSpeed,
-            smoothScrollMomentum: mouse.smoothScrollMomentum
+            smoothScrollMomentum: mouse.smoothScrollMomentum,
+            smoothScrollThumbSpeed: mouse.smoothScrollThumbSpeed
         )
         saveMouseSettings(settings, deviceName: mouse.name)
     }
@@ -310,6 +316,9 @@ enum SettingsStore {
         }
         if let ssMomentum = saved.smoothScrollMomentum {
             mouse.smoothScrollMomentum = ssMomentum
+        }
+        if let ssThumbSpeed = saved.smoothScrollThumbSpeed {
+            mouse.smoothScrollThumbSpeed = ssThumbSpeed
         }
         if let ssEnabled = saved.smoothScrollEnabled {
             mouse.smoothScrollEnabled = ssEnabled

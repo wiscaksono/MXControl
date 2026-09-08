@@ -1,3 +1,4 @@
+import MXControlHIDPP
 import Foundation
 import Observation
 import os

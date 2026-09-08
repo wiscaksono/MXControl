@@ -1,12 +1,6 @@
+import MXControlHIDPP
 import Foundation
-
-/// Known device types.
-enum DeviceType: String, Sendable {
-    case mouse
-    case keyboard
-    case receiver
-    case unknown
-}
+import MXControlHIDPP
 
 /// Static lookup for known Logitech device PIDs and model IDs.
 enum DeviceRegistry {

@@ -1,3 +1,4 @@
+import MXControlHIDPP
 import AppKit
 import ServiceManagement
 import SwiftUI

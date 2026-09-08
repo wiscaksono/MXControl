@@ -4,12 +4,6 @@ import IOKit.hid
 import Observation
 import os
 
-/// The transport type through which a device was discovered.
-enum TransportType: String, Sendable {
-    case usb = "USB"
-    case ble = "BLE"
-}
-
 /// Manages discovery and lifecycle of Logitech HID++ devices.
 ///
 /// Uses a single IOHIDManager (via USBTransport) that discovers BOTH:
@@ -68,7 +62,7 @@ final class DeviceManager {
 
     /// BLE-only devices discovered via CoreBluetooth (battery + device info only).
     /// These are NOT full LogiDevice instances — HID++ is inaccessible via BLE.
-    var bleDevices: [BLEDeviceInfo] = []
+    var bleDevices: [BLEPeripheralInfo] = []
 
     /// CBPeripheral UUIDs currently being initialized — prevents concurrent init.
     private var initializingCBPeripherals: Set<UUID> = []
@@ -430,7 +424,7 @@ final class DeviceManager {
             deviceIdToUID[device.id] = info.uid
             initializedBLEUIDs.insert(info.uid)
 
-            // Remove duplicate CB BLEDeviceInfo (if CoreBluetooth scanner already read battery)
+            // Remove duplicate CB BLEPeripheralInfo (if CoreBluetooth scanner already read battery)
             if let idx = bleDevices.firstIndex(where: { $0.name == device.name }) {
                 let peripheralId = bleDevices[idx].peripheralId
                 debugLog("[DeviceManager] Removing CB duplicate for \(device.name) — IOKit HID++ preferred")

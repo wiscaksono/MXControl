@@ -2,10 +2,11 @@ import CoreBluetooth
 import Foundation
 import os
 
-// MARK: - BLE Device Info
+// MARK: - BLE Peripheral Info
 
 /// Information gathered from a BLE peripheral via standard GATT services.
-struct BLEDeviceInfo: Sendable {
+/// Named distinctly from `DeviceRegistry.BLEPeripheralInfo` (a static PID lookup).
+struct BLEPeripheralInfo: Sendable {
     var name: String
     var peripheralId: UUID
     var batteryLevel: Int?         // 0-100 from Battery Service
@@ -53,13 +54,13 @@ final class BLEInfoService: NSObject, CBPeripheralDelegate, @unchecked Sendable 
     // MARK: - State
 
     let peripheral: CBPeripheral
-    private(set) var info: BLEDeviceInfo
+    private(set) var info: BLEPeripheralInfo
 
     /// Called when battery level or device info updates.
-    var onUpdate: ((_ info: BLEDeviceInfo) -> Void)?
+    var onUpdate: ((_ info: BLEPeripheralInfo) -> Void)?
 
     /// Continuation for the initial read completion.
-    private var readyContinuation: CheckedContinuation<BLEDeviceInfo, any Error>?
+    private var readyContinuation: CheckedContinuation<BLEPeripheralInfo, any Error>?
 
     /// Track pending reads to know when initial discovery is complete.
     private var pendingReads = 0
@@ -72,7 +73,7 @@ final class BLEInfoService: NSObject, CBPeripheralDelegate, @unchecked Sendable 
 
     init(peripheral: CBPeripheral, name: String) {
         self.peripheral = peripheral
-        self.info = BLEDeviceInfo(name: name, peripheralId: peripheral.identifier)
+        self.info = BLEPeripheralInfo(name: name, peripheralId: peripheral.identifier)
         super.init()
     }
 
@@ -81,10 +82,10 @@ final class BLEInfoService: NSObject, CBPeripheralDelegate, @unchecked Sendable 
     /// Discover services, read device info + battery, subscribe to battery notify.
     /// Returns the gathered device info once the initial read is complete.
     /// Times out after 10 seconds if the peripheral doesn't respond.
-    func open() async throws -> BLEDeviceInfo {
+    func open() async throws -> BLEPeripheralInfo {
         debugLog("[BLEInfo] Opening \(info.name) — discovering Battery + DeviceInfo services...")
 
-        return try await withThrowingTaskGroup(of: BLEDeviceInfo.self) { group in
+        return try await withThrowingTaskGroup(of: BLEPeripheralInfo.self) { group in
             group.addTask {
                 try await withCheckedThrowingContinuation { continuation in
                     self.readyContinuation = continuation

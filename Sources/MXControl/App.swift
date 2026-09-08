@@ -29,6 +29,7 @@ struct MXControlApp: App {
     init() {
         AppVisibilityPreferences.registerDefaults()
         BatteryNotifier.setup()
+        MicMuteEngine.shared.startDeviceMonitoring()
     }
 
     var body: some Scene {

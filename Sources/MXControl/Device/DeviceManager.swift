@@ -76,12 +76,33 @@ final class DeviceManager {
     /// CBPeripheral UUIDs that have been successfully initialized.
     private var initializedCBPeripherals: Set<UUID> = []
 
+    /// Notification observer token for mic-mute config changes.
+    /// Non-isolated so deinit (nonisolated) can remove it. Set once in init.
+    nonisolated(unsafe) private var micMuteObserver: NSObjectProtocol?
+
     // MARK: - Init
 
     init() {
+        // Refresh F9 fallback routing whenever mic-mute config changes (UI toggle,
+        // divert armed/cleared). Coalesced on the main queue.
+        micMuteObserver = NotificationCenter.default.addObserver(
+            forName: .micMuteConfigChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.refreshMicMuteState()
+            }
+        }
         // Auto-start discovery on creation
         Task { @MainActor [self] in
             self.startDiscovery()
+        }
+    }
+
+    deinit {
+        if let micMuteObserver {
+            NotificationCenter.default.removeObserver(micMuteObserver)
         }
     }
 
@@ -166,6 +187,15 @@ final class DeviceManager {
 
         // Start CoreBluetooth scanner in parallel — handles BLE devices that IOKit can't access
         startBLEScanner()
+
+        // F9 fallback tap fires the same engine + overlay as the HID++ divert path.
+        // Debounce inside the engine guards against double-fire when both trigger.
+        F9KeyMonitor.shared.onF9Pressed = {
+            Task { @MainActor in
+                let muted = MicMuteEngine.shared.toggleFromKeypress()
+                MicMuteOverlay.shared.reflect(muted: muted)
+            }
+        }
     }
 
     /// Stop all discovery and clean up.
@@ -195,6 +225,7 @@ final class DeviceManager {
         BatteryNotifier.reset()
         isScanning = false
         statusMessage = "Stopped"
+        refreshMicMuteState()
     }
 
     // MARK: - Scroll Target Reset
@@ -292,6 +323,7 @@ final class DeviceManager {
         logger.info("[DeviceManager] USB discovery complete: found \(discovered.count) device(s)")
 
         setupNotificationRouting()
+        refreshMicMuteState()
 
         if !devices.isEmpty {
             startBatteryRefresh()
@@ -412,6 +444,7 @@ final class DeviceManager {
             isScanning = false
             updateStatus()
             setupNotificationRouting()
+            refreshMicMuteState()
 
             if !devices.isEmpty {
                 startBatteryRefresh()
@@ -528,6 +561,7 @@ final class DeviceManager {
 
             isScanning = false
             updateStatus()
+            refreshMicMuteState()
 
         } catch {
             debugLog("[DeviceManager] CB info read failed for \(name): \(error)")
@@ -551,6 +585,7 @@ final class DeviceManager {
         initializedCBPeripherals.remove(peripheralId)
 
         updateStatus()
+        refreshMicMuteState()
     }
 
     // MARK: - Device Removal
@@ -599,6 +634,10 @@ final class DeviceManager {
         } else {
             updateStatus()
         }
+        // Rebuild routing so removed devices stop receiving notifications
+        // (the handler captures device maps by value and would otherwise go stale).
+        setupNotificationRouting()
+        refreshMicMuteState()
     }
 
     // MARK: - BLE Reconnection
@@ -610,6 +649,14 @@ final class DeviceManager {
     private func handleBLEDeviceReconnected(uid: String) {
         guard let deviceId = uidToDeviceId[uid] else {
             debugLog("[DeviceManager] BLE reconnected for unknown uid=\(uid)")
+            return
+        }
+
+        if let keyboard = devices.first(where: { $0.id == deviceId }) as? KeyboardDevice {
+            debugLog("[DeviceManager] BLE reconnected for \(keyboard.name) — re-arming mic-mute divert")
+            Task {
+                await keyboard.rearmMicMuteDivert()
+            }
             return
         }
 
@@ -675,15 +722,24 @@ final class DeviceManager {
 
         // Build a map from (senderUID, deviceIndex) → MouseDevice for routing
         var mouseMap: [NotificationKey: MouseDevice] = [:]
+        var keyboardMap: [NotificationKey: KeyboardDevice] = [:]
 
         for device in devices {
-            guard let mouse = device as? MouseDevice else { continue }
-            if let uid = deviceIdToUID[device.id] {
-                let transportType = deviceTransportType[device.id]
-                mouseMap[NotificationKey(uid: uid, deviceIndex: mouse.deviceIndex)] = mouse
-                if transportType == .ble {
-                    // BLE notifications arrive with deviceIndex=0xFF (broadcast/self-address)
-                    mouseMap[NotificationKey(uid: uid, deviceIndex: 255)] = mouse
+            if let mouse = device as? MouseDevice {
+                if let uid = deviceIdToUID[device.id] {
+                    let transportType = deviceTransportType[device.id]
+                    mouseMap[NotificationKey(uid: uid, deviceIndex: mouse.deviceIndex)] = mouse
+                    if transportType == .ble {
+                        // BLE notifications arrive with deviceIndex=0xFF (broadcast/self-address)
+                        mouseMap[NotificationKey(uid: uid, deviceIndex: 255)] = mouse
+                    }
+                }
+            } else if let keyboard = device as? KeyboardDevice {
+                if let uid = deviceIdToUID[device.id] {
+                    keyboardMap[NotificationKey(uid: uid, deviceIndex: keyboard.deviceIndex)] = keyboard
+                    if deviceTransportType[device.id] == .ble {
+                        keyboardMap[NotificationKey(uid: uid, deviceIndex: 255)] = keyboard
+                    }
                 }
             }
         }
@@ -697,7 +753,7 @@ final class DeviceManager {
             }
         }
 
-        transport.notificationHandler = { [mouseMap, hiResScrollIndices] senderUID, deviceIndex, featureIndex, functionId, params in
+        transport.notificationHandler = { [mouseMap, keyboardMap, hiResScrollIndices] senderUID, deviceIndex, featureIndex, functionId, params in
             let key = NotificationKey(uid: senderUID, deviceIndex: deviceIndex)
 
             // Fast path: hi-res scroll data → process directly on transport thread.
@@ -715,12 +771,59 @@ final class DeviceManager {
                 Task { @MainActor in
                     mouse.handleNotification(featureIndex: featureIndex, functionId: functionId, params: params)
                 }
+            } else if let keyboard = keyboardMap[key] {
+                Task { @MainActor in
+                    keyboard.handleNotification(featureIndex: featureIndex, functionId: functionId, params: params)
+                }
             }
         }
 
         let totalDevices = self.devices.count
-        debugLog("[DeviceManager] Notification routing configured: \(mouseMap.count) mouse(s)")
+        debugLog("[DeviceManager] Notification routing configured: \(mouseMap.count) mouse(s), \(keyboardMap.count) keyboard(s)")
         logger.info("[DeviceManager] Notification routing configured for \(totalDevices) device(s)")
+    }
+
+    // MARK: - Mic Mute Routing
+
+    /// Decide whether the F9KeyMonitor fallback tap should run.
+    ///
+    /// Enabled when at least one keyboard wants mic mute but has no active
+    /// HID++ divert (divert unavailable or CID unidentified).
+    ///
+    /// The HID++ divert path is safe (only the Logitech key is swallowed) and
+    /// defaults on. The global event-tap fallback swallows F9 system-wide, so
+    /// for CoreBluetooth-only keyboards (no HID++ at all) it is strictly
+    /// opt-in: the user must have explicitly enabled mic mute in the UI
+    /// (which persists `micmute.enabled=true`). A missing pref means OFF.
+    func refreshMicMuteState() {
+        var wantMonitor = false
+
+        for device in devices {
+            if let keyboard = device as? KeyboardDevice,
+               keyboard.micMuteEnabled, !keyboard.micMuteDivertActive
+            {
+                wantMonitor = true
+                break
+            }
+        }
+
+        if !wantMonitor {
+            for ble in bleDevices where ble.deviceType == .keyboard {
+                let pref = SettingsStore.loadKeyboardSettings(deviceName: ble.name).micMuteEnabled
+                if pref == true {
+                    wantMonitor = true
+                    break
+                }
+            }
+        }
+
+        if F9KeyMonitor.shared.isEnabled != wantMonitor {
+            debugLog("[DeviceManager] F9KeyMonitor enabled=\(wantMonitor)")
+            logger.info("[DeviceManager] F9 fallback monitor \(wantMonitor ? "enabled" : "disabled", privacy: .public)")
+        }
+        // Assign unconditionally: if a previous start failed (e.g. Accessibility
+        // denied), re-setting true retries the start.
+        F9KeyMonitor.shared.isEnabled = wantMonitor
     }
 
     // MARK: - Status

@@ -187,6 +187,7 @@ enum SettingsStore {
         var backlightEnabled: Bool?
         var backlightLevel: Int?
         var fnInverted: Bool?
+        var micMuteEnabled: Bool?
     }
 
     /// Save keyboard settings to UserDefaults.
@@ -196,6 +197,7 @@ enum SettingsStore {
         if let enabled = settings.backlightEnabled { defaults.set(enabled, forKey: k("backlight.enabled")) }
         if let level = settings.backlightLevel { defaults.set(level, forKey: k("backlight.level")) }
         if let fnInv = settings.fnInverted { defaults.set(fnInv, forKey: k("fn.inverted")) }
+        if let micMute = settings.micMuteEnabled { defaults.set(micMute, forKey: k("micmute.enabled")) }
 
         logger.info("[SettingsStore] Saved keyboard settings for \(deviceName)")
     }
@@ -214,6 +216,9 @@ enum SettingsStore {
         }
         if defaults.object(forKey: k("fn.inverted")) != nil {
             settings.fnInverted = defaults.bool(forKey: k("fn.inverted"))
+        }
+        if defaults.object(forKey: k("micmute.enabled")) != nil {
+            settings.micMuteEnabled = defaults.bool(forKey: k("micmute.enabled"))
         }
 
         return settings
@@ -248,7 +253,8 @@ enum SettingsStore {
         let settings = KeyboardSettings(
             backlightEnabled: keyboard.backlightEnabled,
             backlightLevel: keyboard.backlightLevel,
-            fnInverted: keyboard.fnInverted
+            fnInverted: keyboard.fnInverted,
+            micMuteEnabled: keyboard.micMuteEnabled
         )
         saveKeyboardSettings(settings, deviceName: keyboard.name)
     }
@@ -346,6 +352,11 @@ enum SettingsStore {
         if let fnInv = saved.fnInverted {
             do { try await withRetry("FnInversion") { try await keyboard.setFnInversion(fnInv) }; applied += 1 }
             catch { failed += 1; logger.warning("[SettingsStore] Failed to restore Fn inversion: \(error.localizedDescription)") }
+        }
+        if let micMute = saved.micMuteEnabled {
+            // No HID++ write here — divert was already attempted in loadMicMute()
+            // using this same pref. Just sync the live flag.
+            keyboard.micMuteEnabled = micMute
         }
 
         if failed == 0 {

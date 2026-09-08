@@ -121,26 +121,6 @@ extension DeviceDetailView {
                 commit(CapabilityID.micMuteEnabled)
             }
 
-            Button {
-                device.fireMicMute()
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "mic.fill")
-                        .font(.system(size: 10))
-                    Text("Test Mic Mute")
-                        .font(.system(size: 12))
-                }
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .center)
-                .padding(.vertical, 6)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(Color(nsColor: .controlBackgroundColor))
-                )
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-
             if !(device.micMuteBehavior?.divertActive ?? false) && !MacActions.hasAccessibilityPermission() {
                 WarningBanner(text: "Accessibility permission required for F9 intercept. Grant in System Settings > Privacy & Security > Accessibility.")
             }

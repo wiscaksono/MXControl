@@ -16,35 +16,55 @@ final class MicMuteOverlay {
         static let height: CGFloat = 48
         static let marginTop: CGFloat = 10
         static let cornerRadius: CGFloat = 12
+        /// Points of the pill hidden past the right screen edge. Kills the
+        /// right-side window shadow and glass edge highlight; top/left/bottom
+        /// keep theirs. Icon padding compensates so it stays centered.
+        static let rightClip: CGFloat = 10
+        /// Show animation: short slide in from off-screen right.
+        static let slideInDuration: TimeInterval = 0.3
+        /// Hide animation: short slide out to off-screen right.
+        static let slideOutDuration: TimeInterval = 0.3
     }
 
     private var panel: NSPanel?
     /// Which backdrop backend the panel uses. Logged on show for verification.
     private var usesGlass = false
-    /// Show/hide generation: a hide completion only orders out when no newer
-    /// show superseded it, so rapid toggles can't strand a visible alpha-0 panel.
+    /// Show/hide generation: stale animation frames and hide completions are
+    /// dropped when a newer show/hide supersedes them, so rapid toggles can't
+    /// strand the panel mid-flight or order it out from under a new show.
     private var animationGeneration = 0
+    /// Active frame-animation timer. Cancelled on every new animation so only
+    /// one driver ever moves the panel.
+    private var slideTimer: DispatchSourceTimer?
 
     private init() {}
 
-    /// Show the muted pill. Re-showing repositions to the active screen.
+    /// Show the muted pill. Slides in from off-screen right into the
+    /// right-edge dock on hidden→visible transitions; re-showing while
+    /// visible just ensures full opacity.
+    /// Re-showing repositions to the active screen.
     func show() {
         let panel = self.panel ?? makePanel()
         self.panel = panel
 
         logger.info("[MicMute] Overlay backend: \(self.usesGlass ? "NSGlassEffectView (Liquid Glass)" : "NSVisualEffectView (fallback)", privacy: .public)")
 
-        positionTopRight(panel)
-
+        let finalFrame = topRightFrame()
         animationGeneration += 1
+        let generation = animationGeneration
 
         if !panel.isVisible {
+            // Start fully past the right screen edge, slide left into the dock.
+            var startFrame = finalFrame
+            startFrame.origin.x = finalFrame.maxX
+            logger.info("[MicMute] show: \(NSStringFromRect(startFrame), privacy: .public) → \(NSStringFromRect(finalFrame), privacy: .public) gen=\(generation, privacy: .public)")
             panel.alphaValue = 0
+            panel.setFrame(startFrame, display: false)
             panel.orderFrontRegardless()
-        }
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.18
-            panel.animator().alphaValue = 1
+            animatePanel(to: finalFrame, alpha: 1, duration: Layout.slideInDuration, frameEasing: easeOut, alphaEasing: rampedAlpha, generation: generation)
+        } else {
+            positionTopRight(panel)
+            animatePanel(to: finalFrame, alpha: 1, duration: 0.18, frameEasing: easeOut, alphaEasing: easeOut, generation: generation)
         }
     }
 
@@ -58,16 +78,15 @@ final class MicMuteOverlay {
         }
     }
 
-    /// Hide immediately with a quick fade. No-op when already hidden.
+    /// Hide with a slide out to off-screen right. No-op when already hidden.
     func hide() {
         guard let panel, panel.isVisible else { return }
         animationGeneration += 1
         let generation = animationGeneration
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.15
-            panel.animator().alphaValue = 0
-        } completionHandler: {
-            guard generation == self.animationGeneration else { return }
+        var endFrame = panel.frame
+        endFrame.origin.x = rightOffscreenX()
+        logger.info("[MicMute] hide: \(NSStringFromRect(panel.frame), privacy: .public) → \(NSStringFromRect(endFrame), privacy: .public) gen=\(generation, privacy: .public)")
+        animatePanel(to: endFrame, alpha: 0, duration: Layout.slideOutDuration, frameEasing: easeIn, alphaEasing: easeIn, generation: generation) {
             panel.orderOut(nil)
         }
     }
@@ -76,7 +95,73 @@ final class MicMuteOverlay {
     /// animated fade is not guaranteed to complete before exit.
     func hideImmediately() {
         animationGeneration += 1
+        slideTimer?.cancel()
+        slideTimer = nil
         panel?.orderOut(nil)
+    }
+
+    // MARK: - Explicit Frame Driver
+
+    /// Ease-out cubic.
+    private func easeOut(_ t: Double) -> Double { 1 - pow(1 - t, 3) }
+    /// Ease-in cubic.
+    private func easeIn(_ t: Double) -> Double { t * t * t }
+    /// Fast alpha ramp: fully opaque 20% in so the pill is visible
+    /// while it travels instead of fading in at the destination.
+    private func rampedAlpha(_ t: Double) -> Double { min(1.0, t * 5.0) }
+
+    /// Drive frame + alpha on a 60fps main-queue timer with an explicit snap
+    /// at the end. Replaces `animator().setFrame`, whose interpolation the
+    /// panel does not reliably follow across rapid show/hide cycles.
+    /// The completion runs only when no newer animation superseded this one.
+    private func animatePanel(
+        to frame: NSRect,
+        alpha: CGFloat,
+        duration: TimeInterval,
+        frameEasing: @escaping (Double) -> Double,
+        alphaEasing: @escaping (Double) -> Double,
+        generation: Int,
+        completion: (() -> Void)? = nil
+    ) {
+        slideTimer?.cancel()
+        slideTimer = nil
+        guard let panel else { return }
+
+        let fromFrame = panel.frame
+        let fromAlpha = panel.alphaValue
+        let start = CACurrentMediaTime()
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now(), repeating: 1.0 / 60.0)
+        timer.setEventHandler { [weak self] in
+            guard let self else {
+                timer.cancel()
+                return
+            }
+            guard generation == self.animationGeneration else {
+                timer.cancel()
+                return
+            }
+            let t = min(1.0, (CACurrentMediaTime() - start) / duration)
+            let e = CGFloat(frameEasing(t))
+            let a = CGFloat(alphaEasing(t))
+            func lerp(_ a: CGFloat, _ b: CGFloat) -> CGFloat { a + (b - a) * e }
+            panel.setFrame(
+                NSRect(
+                    x: lerp(fromFrame.origin.x, frame.origin.x),
+                    y: lerp(fromFrame.origin.y, frame.origin.y),
+                    width: frame.width,
+                    height: frame.height
+                ),
+                display: true
+            )
+            panel.alphaValue = fromAlpha + (alpha - fromAlpha) * a
+            if t >= 1.0 {
+                timer.cancel()
+                completion?()
+            }
+        }
+        slideTimer = timer
+        timer.resume()
     }
 
     // MARK: - Panel Setup
@@ -133,12 +218,15 @@ final class MicMuteOverlay {
         // alone is undocumented behavior; masksToBounds makes it deterministic.
         container.layer?.masksToBounds = true
 
-        let glassWidth = Layout.width + Layout.cornerRadius
+        // Overflow covers the right curve, its highlight, plus the off-screen
+        // clip, so the visible right edge cuts through flat glass interior.
+        let glassWidth = Layout.width + Layout.cornerRadius + Layout.rightClip
         let glass = NSGlassEffectView(frame: NSRect(x: 0, y: 0, width: glassWidth, height: Layout.height))
         glass.cornerRadius = Layout.cornerRadius
         glass.style = .regular
 
-        let hostingView = NSHostingView(rootView: MicMutePillView(trailingPadding: Layout.cornerRadius))
+        // Center the icon in the visible zone (window minus right clip).
+        let hostingView = NSHostingView(rootView: MicMutePillView(trailingPadding: glassWidth - (Layout.width - Layout.rightClip)))
         glass.contentView = hostingView
 
         container.addSubview(glass)
@@ -163,7 +251,7 @@ final class MicMuteOverlay {
         effectView.layer?.shadowRadius = 10
         effectView.layer?.shadowOffset = NSSize(width: 0, height: -2)
 
-        let hostingView = NSHostingView(rootView: MicMutePillView())
+        let hostingView = NSHostingView(rootView: MicMutePillView(trailingPadding: Layout.rightClip))
         hostingView.translatesAutoresizingMaskIntoConstraints = false
         effectView.addSubview(hostingView)
         NSLayoutConstraint.activate([
@@ -179,25 +267,42 @@ final class MicMuteOverlay {
     /// Pin flush to the right edge of the screen containing the mouse cursor.
     /// `visibleFrame` already excludes the menu bar, so the pill lands
     /// below the date/time and Control Center, clear of the notch.
+    /// The right `rightClip` points sit past the screen edge so no
+    /// right-side shadow or glass edge renders.
     private func positionTopRight(_ panel: NSPanel) {
+        panel.setFrame(topRightFrame(), display: false)
+    }
+
+    private func topRightFrame() -> NSRect {
         let mouseLocation = NSEvent.mouseLocation
         let screen = NSScreen.screens.first { NSMouseInRect(mouseLocation, $0.frame, false) }
             ?? NSScreen.main
 
-        guard let visible = screen?.visibleFrame else { return }
+        guard let visible = screen?.visibleFrame else {
+            return NSRect(x: 0, y: 0, width: Layout.width, height: Layout.height)
+        }
         let origin = NSPoint(
-            x: visible.maxX - Layout.width,
+            x: visible.maxX - Layout.width + Layout.rightClip,
             y: visible.maxY - Layout.height - Layout.marginTop
         )
-        panel.setFrame(NSRect(origin: origin, size: NSSize(width: Layout.width, height: Layout.height)), display: false)
+        return NSRect(origin: origin, size: NSSize(width: Layout.width, height: Layout.height))
+    }
+
+    /// X so the pill sits fully past the right screen edge.
+    private func rightOffscreenX() -> CGFloat {
+        let mouseLocation = NSEvent.mouseLocation
+        let screen = NSScreen.screens.first { NSMouseInRect(mouseLocation, $0.frame, false) }
+            ?? NSScreen.main
+        let rightEdge = screen?.visibleFrame.maxX ?? 0
+        return rightEdge
     }
 }
 
 // MARK: - Pill Content
 
-/// Red mic-off icon. Trailing padding matches the glass overflow so the icon
-/// stays centered in the visible 48pt zone (glass is 60 wide, 12 clipped).
-/// Legacy path passes 0 (no overflow there).
+/// Red mic-off icon. Trailing padding keeps the icon centered in the
+/// visible zone: glass path compensates overflow + off-screen clip,
+/// legacy path compensates the off-screen clip only.
 struct MicMutePillView: View {
     var trailingPadding: CGFloat = 0
 

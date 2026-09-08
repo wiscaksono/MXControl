@@ -275,11 +275,6 @@ class LogiDevice: Identifiable, @unchecked Sendable {
         await scrollBehavior?.setTarget(false)
     }
 
-    /// Fire the mic-mute action (UI Test button path).
-    func fireMicMute() {
-        micMuteBehavior?.fire()
-    }
-
     // MARK: - Refresh Battery
 
     /// Refresh battery status only. Failures stay out of the load banner.

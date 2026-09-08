@@ -2,6 +2,7 @@ import Testing
 import CoreAudio
 import Foundation
 @testable import MXControl
+@testable import MXControlHIDPP
 
 /// In-memory MicMuteBackend for testing engine logic without touching hardware.
 final class MockMicMuteBackend: MicMuteBackend, @unchecked Sendable {
@@ -171,9 +172,33 @@ struct MicMuteEngineTests {
 @Suite("KeyboardDevice Mic Mute")
 struct KeyboardMicMuteTests {
 
+    /// Minimal HIDTransport stub. The tests below never perform I/O —
+    /// they only drive `handleNotification` and CID matching.
+    final class StubHIDTransport: HIDTransport, @unchecked Sendable {
+        func send(
+            deviceIndex: UInt8,
+            featureIndex: UInt8,
+            functionId: UInt8,
+            softwareId: UInt8,
+            params: [UInt8]
+        ) async throws -> HIDPPResponse {
+            HIDPPResponse(
+                reportId: .long,
+                deviceIndex: deviceIndex,
+                featureIndex: featureIndex,
+                functionId: functionId,
+                softwareId: softwareId,
+                params: [UInt8](repeating: 0, count: 16)
+            )
+        }
+
+        func open() async throws {}
+        func close() {}
+    }
+
     @MainActor
     private func makeKeyboard() -> KeyboardDevice {
-        KeyboardDevice(deviceIndex: 0x01, transport: MockHIDTransport())
+        KeyboardDevice(deviceIndex: 0x01, transport: StubHIDTransport())
     }
 
     @Test @MainActor func micMuteCIDUnknownByDefault() {

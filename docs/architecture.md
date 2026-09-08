@@ -7,11 +7,10 @@ to Logitech devices. No dependency on Logi Options+.
 
 | Target | Kind | Contains |
 |--------|------|----------|
-| `MXControl` | executable | App entry, UI, devices, services, settings |
-| `MXControlTests` | test | Unit tests with `MockHIDTransport` (no hardware) |
-
-Planned: extract `MXControlHIDPP` library (`Protocol/`, `Features/`,
-`Transport/`) so the HID++ core is reusable and independently testable.
+| `MXControlHIDPP` | library | Pure HID++ 2.0 core: `Protocol/`, `Features/`, `Transport/`, `Core/` (logging, diagnostics, device types). No app-layer imports. |
+| `MXControl` | executable | App entry, UI, devices, services, settings. Depends on `MXControlHIDPP`. |
+| `MXControlHIDPPTests` | test | Protocol/feature/transport tests with `MockHIDTransport` (no hardware). |
+| `MXControlTests` | test | App-layer tests (gestures, settings, mic-mute, registry). |
 
 ## Layers
 

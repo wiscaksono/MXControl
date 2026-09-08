@@ -8,17 +8,29 @@ let package = Package(
         .macOS(.v15),
     ],
     targets: [
-        .executableTarget(
-            name: "MXControl",
-            path: "Sources/MXControl",
+        // Pure HID++ 2.0 core: protocol encoding, feature namespaces,
+        // transports. No app-layer imports (no UI, devices, or services).
+        .target(
+            name: "MXControlHIDPP",
+            path: "Sources/MXControlHIDPP",
             linkerSettings: [
                 .linkedFramework("IOKit"),
                 .linkedFramework("CoreBluetooth"),
             ]
         ),
+        .executableTarget(
+            name: "MXControl",
+            dependencies: ["MXControlHIDPP"],
+            path: "Sources/MXControl"
+        ),
+        .testTarget(
+            name: "MXControlHIDPPTests",
+            dependencies: ["MXControlHIDPP"],
+            path: "Tests/MXControlHIDPPTests"
+        ),
         .testTarget(
             name: "MXControlTests",
-            dependencies: ["MXControl"],
+            dependencies: ["MXControl", "MXControlHIDPP"],
             path: "Tests/MXControlTests"
         ),
     ]

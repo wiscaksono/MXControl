@@ -1,3 +1,4 @@
+import MXControlHIDPP
 import SwiftUI
 
 /// Per-device detail view displayed when clicking a device in the menu bar.

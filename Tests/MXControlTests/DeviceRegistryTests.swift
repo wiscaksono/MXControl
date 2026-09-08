@@ -1,5 +1,6 @@
 import Testing
 @testable import MXControl
+@testable import MXControlHIDPP
 
 @Suite("DeviceRegistry")
 struct DeviceRegistryTests {

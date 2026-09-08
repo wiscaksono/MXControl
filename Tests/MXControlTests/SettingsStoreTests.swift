@@ -2,6 +2,9 @@ import Testing
 import Foundation
 @testable import MXControl
 
+/// Tests for SettingsStore persistence. Production reads/writes through the
+/// single-value `saveValue`/`savedValue` API keyed by capability id
+/// (`mxcontrol.{device}.{suffix}`); these tests cover exactly that path.
 @Suite("SettingsStore")
 struct SettingsStoreTests {
 
@@ -12,135 +15,72 @@ struct SettingsStoreTests {
 
     /// Clean up UserDefaults keys for a device name.
     private func cleanup(deviceName: String) {
-        let prefix = "mxcontrol.\(deviceName.lowercased().replacingOccurrences(of: " ", with: "_"))"
-        let defaults = UserDefaults.standard
-        for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(prefix) {
-            defaults.removeObject(forKey: key)
-        }
+        SettingsStore.clearSettings(for: deviceName)
     }
 
-    // MARK: - Mouse Settings Round-Trip
+    // MARK: - Single-Value Round-Trip
 
-    @Test func mouseSettingsRoundTrip() {
+    @Test func intRoundTrip() {
         let name = uniqueDeviceName()
         defer { cleanup(deviceName: name) }
 
-        let settings = SettingsStore.MouseSettings(
-            dpi: 1600,
-            pointerSpeed: 256,
-            smartShiftActive: true,
-            smartShiftTorque: 50,
-            smartShiftWheelMode: 2,
-            hiResEnabled: true,
-            hiResInverted: false,
-            thumbWheelInverted: true,
-            buttonRemaps: [82: 86, 83: 82],
-            gestureClickTimeLimit: 0.25,
-            gestureDragThreshold: 200
-        )
+        SettingsStore.saveValue(1600, CapabilityID.dpi, deviceName: name)
+        let loaded: Int? = SettingsStore.savedValue(CapabilityID.dpi, deviceName: name)
 
-        SettingsStore.saveMouseSettings(settings, deviceName: name)
-        let loaded = SettingsStore.loadMouseSettings(deviceName: name)
-
-        #expect(loaded.dpi == 1600)
-        #expect(loaded.pointerSpeed == 256)
-        #expect(loaded.smartShiftActive == true)
-        #expect(loaded.smartShiftTorque == 50)
-        #expect(loaded.smartShiftWheelMode == 2)
-        #expect(loaded.hiResEnabled == true)
-        #expect(loaded.hiResInverted == false)
-        #expect(loaded.thumbWheelInverted == true)
-        #expect(loaded.buttonRemaps?[82] == 86)
-        #expect(loaded.buttonRemaps?[83] == 82)
-        #expect(loaded.gestureClickTimeLimit == 0.25)
-        #expect(loaded.gestureDragThreshold == 200)
+        #expect(loaded == 1600)
     }
 
-    @Test func mouseSettingsPartialSave() {
+    @Test func boolRoundTrip() {
         let name = uniqueDeviceName()
         defer { cleanup(deviceName: name) }
 
-        // Save only DPI
-        let settings = SettingsStore.MouseSettings(dpi: 800)
-        SettingsStore.saveMouseSettings(settings, deviceName: name)
+        SettingsStore.saveValue(true, CapabilityID.smartShiftActive, deviceName: name)
+        SettingsStore.saveValue(false, CapabilityID.hiResInverted, deviceName: name)
 
-        let loaded = SettingsStore.loadMouseSettings(deviceName: name)
-        #expect(loaded.dpi == 800)
-        #expect(loaded.pointerSpeed == nil)
-        #expect(loaded.smartShiftActive == nil)
-        #expect(loaded.buttonRemaps == nil)
+        let active: Bool? = SettingsStore.savedValue(CapabilityID.smartShiftActive, deviceName: name)
+        let inverted: Bool? = SettingsStore.savedValue(CapabilityID.hiResInverted, deviceName: name)
+
+        #expect(active == true)
+        #expect(inverted == false)
     }
 
-    @Test func mouseSettingsEmptyLoad() {
-        let name = uniqueDeviceName()
-        let loaded = SettingsStore.loadMouseSettings(deviceName: name)
-
-        #expect(loaded.dpi == nil)
-        #expect(loaded.pointerSpeed == nil)
-        #expect(loaded.smartShiftActive == nil)
-        #expect(loaded.buttonRemaps == nil)
-    }
-
-    // MARK: - Button Remap Filtering
-
-    @Test func mouseSettingsFilterThumbButton() {
+    @Test func doubleRoundTrip() {
         let name = uniqueDeviceName()
         defer { cleanup(deviceName: name) }
 
-        // CID 195 (0x00C3) = gesture button -> should be filtered out
-        let settings = SettingsStore.MouseSettings(
-            buttonRemaps: [82: 86, 195: 82, 83: 82]
-        )
-        SettingsStore.saveMouseSettings(settings, deviceName: name)
+        SettingsStore.saveValue(3.5, CapabilityID.smoothScrollSpeed, deviceName: name)
+        let loaded: Double? = SettingsStore.savedValue(CapabilityID.smoothScrollSpeed, deviceName: name)
 
-        let loaded = SettingsStore.loadMouseSettings(deviceName: name)
-        #expect(loaded.buttonRemaps?[82] == 86)
-        #expect(loaded.buttonRemaps?[83] == 82)
-        #expect(loaded.buttonRemaps?[195] == nil) // filtered
+        #expect(loaded == 3.5)
     }
 
-    @Test func mouseSettingsFilterSelfRemaps() {
+    @Test func missingKeyReturnsNil() {
+        let intLoaded: Int? = SettingsStore.savedValue(CapabilityID.dpi, deviceName: uniqueDeviceName())
+        let boolLoaded: Bool? = SettingsStore.savedValue(CapabilityID.smartShiftActive, deviceName: uniqueDeviceName())
+
+        #expect(intLoaded == nil)
+        #expect(boolLoaded == nil)
+    }
+
+    @Test func typeMismatchReturnsNil() {
         let name = uniqueDeviceName()
         defer { cleanup(deviceName: name) }
 
-        // Self-remap (CID == target) should be filtered
-        let settings = SettingsStore.MouseSettings(
-            buttonRemaps: [82: 82, 83: 86]
-        )
-        SettingsStore.saveMouseSettings(settings, deviceName: name)
+        SettingsStore.saveValue(1600, CapabilityID.dpi, deviceName: name)
+        let loaded: Bool? = SettingsStore.savedValue(CapabilityID.dpi, deviceName: name)
 
-        let loaded = SettingsStore.loadMouseSettings(deviceName: name)
-        #expect(loaded.buttonRemaps?[82] == nil) // self-remap filtered
-        #expect(loaded.buttonRemaps?[83] == 86)
+        #expect(loaded == nil)
     }
 
-    // MARK: - Keyboard Settings Round-Trip
-
-    @Test func keyboardSettingsRoundTrip() {
+    @Test func overwriteReplacesValue() {
         let name = uniqueDeviceName()
         defer { cleanup(deviceName: name) }
 
-        let settings = SettingsStore.KeyboardSettings(
-            backlightEnabled: true,
-            backlightLevel: 5,
-            fnInverted: true
-        )
+        SettingsStore.saveValue(800, CapabilityID.dpi, deviceName: name)
+        SettingsStore.saveValue(1600, CapabilityID.dpi, deviceName: name)
+        let loaded: Int? = SettingsStore.savedValue(CapabilityID.dpi, deviceName: name)
 
-        SettingsStore.saveKeyboardSettings(settings, deviceName: name)
-        let loaded = SettingsStore.loadKeyboardSettings(deviceName: name)
-
-        #expect(loaded.backlightEnabled == true)
-        #expect(loaded.backlightLevel == 5)
-        #expect(loaded.fnInverted == true)
-    }
-
-    @Test func keyboardSettingsEmptyLoad() {
-        let name = uniqueDeviceName()
-        let loaded = SettingsStore.loadKeyboardSettings(deviceName: name)
-
-        #expect(loaded.backlightEnabled == nil)
-        #expect(loaded.backlightLevel == nil)
-        #expect(loaded.fnInverted == nil)
+        #expect(loaded == 1600)
     }
 
     // MARK: - Key Format
@@ -153,138 +93,47 @@ struct SettingsStoreTests {
             cleanup(deviceName: name2)
         }
 
-        // Save with different case/spaces
-        SettingsStore.saveMouseSettings(
-            SettingsStore.MouseSettings(dpi: 1600), deviceName: name1
-        )
-        SettingsStore.saveKeyboardSettings(
-            SettingsStore.KeyboardSettings(fnInverted: true), deviceName: name2
-        )
+        SettingsStore.saveValue(1600, CapabilityID.dpi, deviceName: name1)
+        SettingsStore.saveValue(false, CapabilityID.fnStandardKeys, deviceName: name2)
 
-        // Verify they can be loaded back
-        let mouse = SettingsStore.loadMouseSettings(deviceName: name1)
-        #expect(mouse.dpi == 1600)
+        let dpi: Int? = SettingsStore.savedValue(CapabilityID.dpi, deviceName: name1)
+        #expect(dpi == 1600)
 
-        let keyboard = SettingsStore.loadKeyboardSettings(deviceName: name2)
-        #expect(keyboard.fnInverted == true)
+        let fnStandard: Bool? = SettingsStore.savedValue(CapabilityID.fnStandardKeys, deviceName: name2)
+        #expect(fnStandard == false)
     }
-
-    // MARK: - Special characters in device name
 
     @Test func specialCharsInDeviceName() {
         let name = uniqueDeviceName("MX-Keys_Mini (BLE)")
         defer { cleanup(deviceName: name) }
 
-        let settings = SettingsStore.MouseSettings(dpi: 2400)
-        SettingsStore.saveMouseSettings(settings, deviceName: name)
+        SettingsStore.saveValue(2400, CapabilityID.dpi, deviceName: name)
+        let loaded: Int? = SettingsStore.savedValue(CapabilityID.dpi, deviceName: name)
 
-        let loaded = SettingsStore.loadMouseSettings(deviceName: name)
-        #expect(loaded.dpi == 2400)
-    }
-
-    // MARK: - Empty remap dict after filtering
-
-    @Test func mouseSettingsEmptyRemapAfterFiltering() {
-        let name = uniqueDeviceName()
-        defer { cleanup(deviceName: name) }
-
-        // All remaps are self-remaps → all filtered out → empty dict saved
-        let settings = SettingsStore.MouseSettings(
-            buttonRemaps: [82: 82, 83: 83, 86: 86]
-        )
-        SettingsStore.saveMouseSettings(settings, deviceName: name)
-
-        let loaded = SettingsStore.loadMouseSettings(deviceName: name)
-        // The filtered dict is empty, but it's still saved as an empty dict
-        #expect(loaded.buttonRemaps != nil)
-        #expect(loaded.buttonRemaps!.isEmpty)
-    }
-
-    @Test func mouseSettingsAllGestureButtonsFiltered() {
-        let name = uniqueDeviceName()
-        defer { cleanup(deviceName: name) }
-
-        // Only gesture button remap → filtered out → empty dict
-        let settings = SettingsStore.MouseSettings(
-            buttonRemaps: [195: 82]
-        )
-        SettingsStore.saveMouseSettings(settings, deviceName: name)
-
-        let loaded = SettingsStore.loadMouseSettings(deviceName: name)
-        #expect(loaded.buttonRemaps != nil)
-        #expect(loaded.buttonRemaps!.isEmpty)
+        #expect(loaded == 2400)
     }
 
     // MARK: - Clear Settings
 
-    @Test func clearMouseSettingsRemovesAllKeys() {
+    @Test func clearSettingsRemovesAllKeys() {
         let name = uniqueDeviceName()
         defer { cleanup(deviceName: name) }
 
-        // Save a full set of mouse settings
-        let settings = SettingsStore.MouseSettings(
-            dpi: 1600,
-            pointerSpeed: 256,
-            smartShiftActive: true,
-            smartShiftTorque: 50,
-            smartShiftWheelMode: 2,
-            hiResEnabled: true,
-            hiResInverted: false,
-            thumbWheelInverted: true,
-            buttonRemaps: [82: 86],
-            gestureClickTimeLimit: 0.25,
-            gestureDragThreshold: 200
-        )
-        SettingsStore.saveMouseSettings(settings, deviceName: name)
+        SettingsStore.saveValue(1600, CapabilityID.dpi, deviceName: name)
+        SettingsStore.saveValue(256, CapabilityID.pointerSpeed, deviceName: name)
+        SettingsStore.saveValue(true, CapabilityID.backlightEnabled, deviceName: name)
 
-        // Verify saved
-        let before = SettingsStore.loadMouseSettings(deviceName: name)
-        #expect(before.dpi == 1600)
-        #expect(before.pointerSpeed == 256)
+        let beforeDPI: Int? = SettingsStore.savedValue(CapabilityID.dpi, deviceName: name)
+        #expect(beforeDPI == 1600)
 
-        // Clear
-        SettingsStore.clearMouseSettings(deviceName: name)
+        SettingsStore.clearSettings(for: name)
 
-        // Verify all fields are nil after clear
-        let after = SettingsStore.loadMouseSettings(deviceName: name)
-        #expect(after.dpi == nil)
-        #expect(after.pointerSpeed == nil)
-        #expect(after.smartShiftActive == nil)
-        #expect(after.smartShiftTorque == nil)
-        #expect(after.smartShiftWheelMode == nil)
-        #expect(after.hiResEnabled == nil)
-        #expect(after.hiResInverted == nil)
-        #expect(after.thumbWheelInverted == nil)
-        #expect(after.buttonRemaps == nil)
-        #expect(after.gestureClickTimeLimit == nil)
-        #expect(after.gestureDragThreshold == nil)
-    }
-
-    @Test func clearKeyboardSettingsRemovesAllKeys() {
-        let name = uniqueDeviceName()
-        defer { cleanup(deviceName: name) }
-
-        let settings = SettingsStore.KeyboardSettings(
-            backlightEnabled: true,
-            backlightLevel: 5,
-            fnInverted: true
-        )
-        SettingsStore.saveKeyboardSettings(settings, deviceName: name)
-
-        // Verify saved
-        let before = SettingsStore.loadKeyboardSettings(deviceName: name)
-        #expect(before.backlightEnabled == true)
-        #expect(before.backlightLevel == 5)
-        #expect(before.fnInverted == true)
-
-        // Clear
-        SettingsStore.clearKeyboardSettings(deviceName: name)
-
-        // Verify all fields are nil
-        let after = SettingsStore.loadKeyboardSettings(deviceName: name)
-        #expect(after.backlightEnabled == nil)
-        #expect(after.backlightLevel == nil)
-        #expect(after.fnInverted == nil)
+        let afterDPI: Int? = SettingsStore.savedValue(CapabilityID.dpi, deviceName: name)
+        let afterSpeed: Int? = SettingsStore.savedValue(CapabilityID.pointerSpeed, deviceName: name)
+        let afterBacklight: Bool? = SettingsStore.savedValue(CapabilityID.backlightEnabled, deviceName: name)
+        #expect(afterDPI == nil)
+        #expect(afterSpeed == nil)
+        #expect(afterBacklight == nil)
     }
 
     @Test func clearSettingsDoesNotAffectOtherDevices() {
@@ -295,27 +144,15 @@ struct SettingsStoreTests {
             cleanup(deviceName: name2)
         }
 
-        // Save settings for both devices
-        SettingsStore.saveMouseSettings(
-            SettingsStore.MouseSettings(dpi: 1600, pointerSpeed: 256),
-            deviceName: name1
-        )
-        SettingsStore.saveMouseSettings(
-            SettingsStore.MouseSettings(dpi: 3200, pointerSpeed: 512),
-            deviceName: name2
-        )
+        SettingsStore.saveValue(1600, CapabilityID.dpi, deviceName: name1)
+        SettingsStore.saveValue(3200, CapabilityID.dpi, deviceName: name2)
 
-        // Clear only device A
-        SettingsStore.clearMouseSettings(deviceName: name1)
+        SettingsStore.clearSettings(for: name1)
 
-        // Device A should be cleared
-        let afterA = SettingsStore.loadMouseSettings(deviceName: name1)
-        #expect(afterA.dpi == nil)
-        #expect(afterA.pointerSpeed == nil)
+        let afterA: Int? = SettingsStore.savedValue(CapabilityID.dpi, deviceName: name1)
+        #expect(afterA == nil)
 
-        // Device B should be untouched
-        let afterB = SettingsStore.loadMouseSettings(deviceName: name2)
-        #expect(afterB.dpi == 3200)
-        #expect(afterB.pointerSpeed == 512)
+        let afterB: Int? = SettingsStore.savedValue(CapabilityID.dpi, deviceName: name2)
+        #expect(afterB == 3200)
     }
 }

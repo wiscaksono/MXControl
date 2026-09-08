@@ -110,10 +110,12 @@ final class GestureEngine: @unchecked Sendable {
 
         case .pending:
             if !isThumbPressed {
-                let elapsed = ContinuousClock.now - pressTime
-                debugLog("[GestureEngine] Thumb button RELEASED in PENDING (elapsed=\(elapsed) deltaX=\(accumulatedDeltaX))")
+                debugLog("[GestureEngine] Thumb button RELEASED in PENDING (deltaX=\(accumulatedDeltaX))")
 
-                // If we're still in PENDING at release, gesture never fired → always click.
+                // Release before any drag threshold fired. The click window
+                // is enforced on the drag side: handleRawXY ignores movement
+                // until clickTimeLimit elapses, so a quick press+release can
+                // never become a gesture — it is always a click.
                 debugLog("[GestureEngine] → CLICK → Mission Control")
                 state = .idle
                 action = onClick

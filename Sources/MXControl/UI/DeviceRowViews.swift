@@ -1,4 +1,3 @@
-
 import MXControlHIDPP
 import SwiftUI
 
@@ -14,7 +13,7 @@ struct DeviceRowView: View {
     var body: some View {
         HStack(spacing: 8) {
             // Device icon (transport is communicated by the badge, no overlay needed)
-            Image(systemName: deviceIcon)
+            Image(systemName: deviceIconName(for: device.deviceType))
                 .font(.system(size: 15))
                 .foregroundStyle(.secondary)
                 .frame(width: 22)
@@ -24,18 +23,8 @@ struct DeviceRowView: View {
                 .lineLimit(1)
 
             // Transport badge
-            if let transport = transportType {
-                Text(transport.rawValue)
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundStyle(transport == .ble ? .blue : .secondary)
-                    .padding(.horizontal, 4)
-                    .padding(.vertical, 1)
-                    .background(
-                        RoundedRectangle(cornerRadius: 3)
-                            .fill(transport == .ble
-                                ? Color.blue.opacity(0.12)
-                                : Color.secondary.opacity(0.12))
-                    )
+            if let transportType {
+                TransportBadge(type: transportType)
             }
 
             Spacer()
@@ -58,14 +47,6 @@ struct DeviceRowView: View {
         .onHover { isHovered = $0 }
         .onTapGesture { onTap() }
     }
-
-    private var deviceIcon: String {
-        switch device.deviceType {
-        case .mouse: return "computermouse.fill"
-        case .keyboard: return "keyboard.fill"
-        default: return "questionmark.circle"
-        }
-    }
 }
 
 // MARK: - BLE Device Row View
@@ -78,7 +59,7 @@ struct BLEDeviceRowView: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: deviceIcon)
+            Image(systemName: deviceIconName(for: info.deviceType))
                 .font(.system(size: 15))
                 .foregroundStyle(.secondary)
                 .frame(width: 22)
@@ -87,15 +68,7 @@ struct BLEDeviceRowView: View {
                 .font(.system(size: 13, weight: .medium))
                 .lineLimit(1)
 
-            Text("BLE")
-                .font(.system(size: 9, weight: .medium))
-                .foregroundStyle(.blue)
-                .padding(.horizontal, 4)
-                .padding(.vertical, 1)
-                .background(
-                    RoundedRectangle(cornerRadius: 3)
-                        .fill(Color.blue.opacity(0.12))
-                )
+            TransportBadge(type: .ble)
 
             Spacer()
 
@@ -117,13 +90,5 @@ struct BLEDeviceRowView: View {
         )
         .onHover { isHovered = $0 }
         .onTapGesture { onTap() }
-    }
-
-    private var deviceIcon: String {
-        switch info.deviceType {
-        case .mouse: return "computermouse.fill"
-        case .keyboard: return "keyboard.fill"
-        default: return "questionmark.circle"
-        }
     }
 }

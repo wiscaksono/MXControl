@@ -188,41 +188,13 @@ struct DescriptorMicMuteTests {
         )
     }
 
-    /// Minimal HIDTransport stub. The tests below never perform I/O —
-    /// they only drive `handleNotification` and CID matching.
-    final class StubHIDTransport: HIDTransport, @unchecked Sendable {
-        func send(
-            deviceIndex: UInt8,
-            featureIndex: UInt8,
-            functionId: UInt8,
-            softwareId: UInt8,
-            params: [UInt8]
-        ) async throws -> HIDPPResponse {
-            HIDPPResponse(
-                reportId: .long,
-                deviceIndex: deviceIndex,
-                featureIndex: featureIndex,
-                functionId: functionId,
-                softwareId: softwareId,
-                params: [UInt8](repeating: 0, count: 16)
-            )
-        }
-
-        func open() async throws {}
-        func close() {}
-    }
-
     @MainActor
-    private func makeBehavior() -> (LogiDevice, MicMuteBehavior) {
-        let device = LogiDevice(
-            deviceIndex: 0x01,
-            transport: StubHIDTransport(),
-            descriptor: DeviceDescriptors.mxKeysMini
-        )
-        let behavior = MicMuteBehavior(device: device)
+    private func makeBehavior() -> (fixture: DeviceFixture, behavior: MicMuteBehavior) {
+        let fixture = DeviceFixture.make()
+        let behavior = MicMuteBehavior(device: fixture.device)
         behavior.micCID = 0x00C9
-        device.specialKeysFeatureIndex = 0x05
-        return (device, behavior)
+        fixture.device.specialKeysFeatureIndex = 0x05
+        return (fixture, behavior)
     }
 
     @Test @MainActor func micMuteCIDUnknownByDefault() {
@@ -260,8 +232,9 @@ struct DescriptorMicMuteTests {
     }
 
     @Test @MainActor func divertedMicPressFiresOncePerPress() {
-        let (device, behavior) = makeBehavior()
-        defer { _ = device } // keep device alive: behavior holds it unowned
+        let (fixture, behavior) = makeBehavior()
+        // Retain for the whole test: behavior holds the device unowned.
+        defer { _ = fixture }
 
 
         var fires = 0
@@ -280,8 +253,9 @@ struct DescriptorMicMuteTests {
     }
 
     @Test @MainActor func otherCIDsAndFeaturesIgnored() {
-        let (device, behavior) = makeBehavior()
-        defer { _ = device } // keep device alive: behavior holds it unowned
+        let (fixture, behavior) = makeBehavior()
+        // Retain for the whole test: behavior holds the device unowned.
+        defer { _ = fixture }
 
 
         var fires = 0
@@ -298,8 +272,9 @@ struct DescriptorMicMuteTests {
     }
 
     @Test @MainActor func noCIDConfiguredIgnoresEverything() {
-        let (device, behavior) = makeBehavior()
-        defer { _ = device } // keep device alive: behavior holds it unowned
+        let (fixture, behavior) = makeBehavior()
+        // Retain for the whole test: behavior holds the device unowned.
+        defer { _ = fixture }
 
         behavior.micCID = nil
 

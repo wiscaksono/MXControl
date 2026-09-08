@@ -26,6 +26,7 @@ struct ToggleRow: View {
                 .labelsHidden()
                 .toggleStyle(.switch)
                 .controlSize(.small)
+                .accessibilityLabel(label)
         }
         .onChange(of: isOn) { _, newValue in
             onChange?(newValue)

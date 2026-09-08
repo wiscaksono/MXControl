@@ -6,8 +6,8 @@ import os
 ///
 /// Diverts the gesture CID (click → Mission Control, hold+drag → workspace
 /// switch via `GestureEngine`) and optionally the side buttons (global
-/// Back/Forward fallback). All diverts are volatile so buttons recover when
-/// MXControl is not running.
+/// Back/Forward fallback). Side-button diverts are volatile; the thumb
+/// divert persists only when the device reports PersistDivert support.
 @MainActor
 final class ThumbGestureBehavior: DeviceBehavior {
     unowned let device: LogiDevice
@@ -33,7 +33,7 @@ final class ThumbGestureBehavior: DeviceBehavior {
             )
             device.specialKeysFeatureIndex = idx
 
-            let controls = try await SpecialKeysFeature.enumerateControls(
+            let controls = try await DivertService.enumerate(
                 transport: device.transport,
                 deviceIndex: device.deviceIndex,
                 featureIndex: idx
@@ -66,12 +66,11 @@ final class ThumbGestureBehavior: DeviceBehavior {
         do {
             let hasRawXY = thumbButton.flags.contains(.rawXY)
             let canPersist = thumbButton.flags.contains(.persistDivert)
-            try await SpecialKeysFeature.setCtrlIdReporting(
+            try await DivertService.divert(
+                spec.thumbCID,
                 transport: device.transport,
                 deviceIndex: device.deviceIndex,
                 featureIndex: featureIndex,
-                controlId: spec.thumbCID,
-                divert: true,
                 persistDivert: canPersist,
                 rawXY: hasRawXY
             )
@@ -99,21 +98,19 @@ final class ThumbGestureBehavior: DeviceBehavior {
         }
 
         do {
-            let reporting = try await SpecialKeysFeature.getCtrlIdReporting(
+            let preservedRemap = try await DivertService.remapTarget(
+                controlId,
                 transport: device.transport,
                 deviceIndex: device.deviceIndex,
-                featureIndex: featureIndex,
-                controlId: controlId
+                featureIndex: featureIndex
             )
-            try await SpecialKeysFeature.setCtrlIdReporting(
+            try await DivertService.divert(
+                controlId,
                 transport: device.transport,
                 deviceIndex: device.deviceIndex,
                 featureIndex: featureIndex,
-                controlId: controlId,
-                divert: true,
-                // Volatile so buttons recover if MXControl is not running.
                 persistDivert: false,
-                remapTarget: reporting.remapTarget
+                remapTarget: preservedRemap
             )
             debugLog("[ThumbGestureBehavior] \(label) button diverted")
         } catch {
@@ -175,7 +172,7 @@ final class ThumbGestureBehavior: DeviceBehavior {
             return
         }
         do {
-            let controls = try await SpecialKeysFeature.enumerateControls(
+            let controls = try await DivertService.enumerate(
                 transport: device.transport,
                 deviceIndex: device.deviceIndex,
                 featureIndex: idx

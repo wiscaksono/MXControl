@@ -52,6 +52,8 @@ struct SliderRow: View {
                 }
             }
             .controlSize(.small)
+            .accessibilityLabel(label)
+            .accessibilityValue(String(format: format, displayValue) + suffix)
         }
     }
 }

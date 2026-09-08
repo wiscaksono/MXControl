@@ -133,49 +133,51 @@ final class GestureEngine: @unchecked Sendable {
     }
 
     /// Handle raw XY movement data while thumb button is held.
+    ///
+    /// Locking discipline: decide under the lock, invoke outside it.
+    /// The action is copied to a local so no lock is held during the
+    /// (potentially re-entrant) callback — never lock around `action?()`.
     func handleRawXY(deltaX: Int16, deltaY: Int16) {
         lock.lock()
-        defer { lock.unlock() }
-
         var action: (() -> Void)?
 
-        guard state == .pending else { return }
+        if state == .pending {
+            accumulatedDeltaX += Int(deltaX)
+            accumulatedDeltaY += Int(deltaY)
 
-        accumulatedDeltaX += Int(deltaX)
-        accumulatedDeltaY += Int(deltaY)
+            // Time-gate: don't check drag threshold until click time window has passed
+            // (rounded, not truncated, so a 200ms limit doesn't flap at 199ms).
+            let elapsed = ContinuousClock.now - pressTime
+            if elapsed >= .milliseconds(Int((clickTimeLimit * 1000).rounded())) {
+                let absDX = abs(accumulatedDeltaX)
+                let absDY = abs(accumulatedDeltaY)
 
-        // Time-gate: don't check drag threshold until click time window has passed
-        let elapsed = ContinuousClock.now - pressTime
-        guard elapsed >= .milliseconds(Int(clickTimeLimit * 1000)) else { return }
-
-        let absDX = abs(accumulatedDeltaX)
-        let absDY = abs(accumulatedDeltaY)
-
-        // Whichever axis exceeds the threshold first wins (prevents diagonal confusion)
-        if absDX >= dragThreshold && absDX >= absDY {
-            if accumulatedDeltaX < 0 {
-                debugLog("[GestureEngine] DRAG LEFT (dx=\(accumulatedDeltaX)) → Workspace RIGHT")
-                state = .gesture
-                action = onDragLeft
-            } else {
-                debugLog("[GestureEngine] DRAG RIGHT (dx=\(accumulatedDeltaX)) → Workspace LEFT")
-                state = .gesture
-                action = onDragRight
-            }
-        } else if absDY >= dragThreshold && absDY > absDX {
-            if accumulatedDeltaY < 0 {
-                debugLog("[GestureEngine] DRAG UP (dy=\(accumulatedDeltaY)) → Mission Control")
-                state = .gesture
-                action = onDragUp
-            } else {
-                debugLog("[GestureEngine] DRAG DOWN (dy=\(accumulatedDeltaY)) → App Exposé")
-                state = .gesture
-                action = onDragDown
+                // Whichever axis exceeds the threshold first wins (prevents diagonal confusion)
+                if absDX >= dragThreshold && absDX >= absDY {
+                    if accumulatedDeltaX < 0 {
+                        debugLog("[GestureEngine] DRAG LEFT (dx=\(accumulatedDeltaX)) → Workspace RIGHT")
+                        state = .gesture
+                        action = onDragLeft
+                    } else {
+                        debugLog("[GestureEngine] DRAG RIGHT (dx=\(accumulatedDeltaX)) → Workspace LEFT")
+                        state = .gesture
+                        action = onDragRight
+                    }
+                } else if absDY >= dragThreshold && absDY > absDX {
+                    if accumulatedDeltaY < 0 {
+                        debugLog("[GestureEngine] DRAG UP (dy=\(accumulatedDeltaY)) → Mission Control")
+                        state = .gesture
+                        action = onDragUp
+                    } else {
+                        debugLog("[GestureEngine] DRAG DOWN (dy=\(accumulatedDeltaY)) → App Exposé")
+                        state = .gesture
+                        action = onDragDown
+                    }
+                }
             }
         }
 
         lock.unlock()
         action?()
-        lock.lock()
     }
 }

@@ -830,6 +830,13 @@ final class DeviceManager {
 
     // MARK: - Public Helpers
 
+    /// Full rescan: stop discovery, drop all state, start over.
+    func rescan() {
+        stopDiscovery()
+        devices.removeAll()
+        startDiscovery()
+    }
+
     /// Get the transport type for a device.
     func transportType(for device: LogiDevice) -> TransportType? {
         deviceTransportType[device.id]

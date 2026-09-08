@@ -1,10 +1,6 @@
 import AppKit
-import os
 import ServiceManagement
 import SwiftUI
-
-/// Global logger for MXControl.
-let logger = Logger(subsystem: "com.mxcontrol.app", category: "general")
 
 @main
 struct MXControlApp: App {
@@ -70,7 +66,7 @@ struct MenuBarView: View {
         return deviceManager.devices.first { $0.id == id }
     }
 
-    private var activeBLEDevice: BLEDeviceInfo? {
+    private var activeBLEDevice: BLEPeripheralInfo? {
         guard case .ble(let id) = destination else { return nil }
         return deviceManager.bleDevices.first { $0.peripheralId == id }
     }
@@ -425,7 +421,7 @@ struct MenuBarView: View {
         .padding(.vertical, 8)
     }
 
-    private func bleHeader(for bleDevice: BLEDeviceInfo) -> some View {
+    private func bleHeader(for bleDevice: BLEPeripheralInfo) -> some View {
         HStack(spacing: 6) {
             backButton {
                 destination = .root
@@ -482,7 +478,7 @@ struct MenuBarView: View {
         }
     }
 
-    private func iconForBLEDevice(_ info: BLEDeviceInfo) -> String {
+    private func iconForBLEDevice(_ info: BLEPeripheralInfo) -> String {
         switch info.deviceType {
         case .mouse: return "computermouse.fill"
         case .keyboard: return "keyboard.fill"
@@ -564,7 +560,7 @@ struct DeviceRowView: View {
 // MARK: - BLE Device Row View
 
 struct BLEDeviceRowView: View {
-    let info: BLEDeviceInfo
+    let info: BLEPeripheralInfo
     var onTap: () -> Void
 
     @State private var isHovered = false
@@ -624,7 +620,7 @@ struct BLEDeviceRowView: View {
 // MARK: - BLE Device Detail View
 
 struct BLEDeviceDetailView: View {
-    let info: BLEDeviceInfo
+    let info: BLEPeripheralInfo
 
     var body: some View {
         VStack(spacing: 12) {

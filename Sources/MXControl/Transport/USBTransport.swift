@@ -3,36 +3,6 @@ import IOKit
 import IOKit.hid
 import os
 
-// MARK: - Debug File Logger
-
-#if DEBUG
-/// Write debug log directly to file, bypassing macOS privacy filtering.
-private let debugLogFile: FileHandle? = {
-    let path = "/tmp/mxcontrol_debug.log"
-    FileManager.default.createFile(atPath: path, contents: nil)
-    return FileHandle(forWritingAtPath: path)
-}()
-
-nonisolated(unsafe) private let debugDateFormatter: ISO8601DateFormatter = {
-    let f = ISO8601DateFormatter()
-    f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-    return f
-}()
-
-nonisolated(unsafe) private let debugLogQueue = DispatchQueue(label: "com.mxcontrol.debuglog")
-
-func debugLog(_ message: String) {
-    let ts = debugDateFormatter.string(from: Date())
-    let line = "[\(ts)] \(message)\n"
-    debugLogQueue.async {
-        debugLogFile?.seekToEndOfFile()
-        debugLogFile?.write(line.data(using: .utf8) ?? Data())
-    }
-}
-#else
-@inline(__always) func debugLog(_ message: @autoclosure () -> String) {}
-#endif
-
 // MARK: - Response Waiter
 
 /// A pending request waiting for a matching HID++ response.

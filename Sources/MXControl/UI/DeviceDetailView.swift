@@ -561,6 +561,10 @@ struct KeyboardDetailView: View {
                         separator
                     }
 
+                    // Mic Mute (F9)
+                    micMuteSection
+                    separator
+
                     // Host Info
                     if !keyboard.hosts.isEmpty {
                         hostInfoSection
@@ -774,6 +778,60 @@ struct KeyboardDetailView: View {
             }
         }
         .padding(.vertical, 2)
+    }
+
+    // MARK: - Mic Mute (F9)
+
+    private var micMuteSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ToggleRow(
+                label: "Mic Mute on F9",
+                isOn: $keyboard.micMuteEnabled,
+                subtitle: keyboard.micMuteDivertActive
+                    ? "F9 toggles the microphone via the keyboard"
+                    : "F9 is intercepted globally (keyboard divert unavailable)"
+            ) { enabled in
+                // Serialize: persist only after the divert (un)armed so the
+                // saved pref can never race ahead of the live device state.
+                Task {
+                    await keyboard.setMicMuteEnabled(enabled)
+                    save()
+                }
+            }
+
+            Button {
+                keyboard.fireMicMute()
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "mic.fill")
+                        .font(.system(size: 10))
+                    Text("Test Mic Mute")
+                        .font(.system(size: 12))
+                }
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.vertical, 6)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color(nsColor: .controlBackgroundColor))
+                )
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if !keyboard.micMuteDivertActive && !MacActions.hasAccessibilityPermission() {
+                HStack(alignment: .top, spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.orange)
+                    Text("Accessibility permission required for F9 intercept. Grant in System Settings > Privacy & Security > Accessibility.")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .padding(.vertical, 6)
     }
 }
 

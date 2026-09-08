@@ -43,6 +43,9 @@ final class AppVisibilityController: NSObject, NSApplicationDelegate {
 
     func applicationDidBecomeActive(_ notification: Notification) {
         restoreMenuBarIconIfNeeded()
+        // Retry a pending F9 tap start: the user may have granted Accessibility
+        // after an earlier failed start while the enabled flag stayed on.
+        F9KeyMonitor.shared.retryIfNeeded()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -64,6 +67,13 @@ final class AppVisibilityController: NSObject, NSApplicationDelegate {
         }
 
         ScrollInterceptor.shared.stop()
+        F9KeyMonitor.shared.stop()
+        MicMuteEngine.shared.stopDeviceMonitoring()
+        Task { @MainActor in
+            // Synchronous order-out: the animated fade is best-effort here
+            // and may not complete before the process exits.
+            MicMuteOverlay.shared.hideImmediately()
+        }
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {

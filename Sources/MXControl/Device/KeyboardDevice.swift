@@ -36,6 +36,23 @@ final class KeyboardDevice: LogiDevice, @unchecked Sendable {
     /// G-key state byte from 0x40A3 enhanced protocol — must be preserved for writes.
     private var fnGKeyState: UInt8 = 0
 
+    // MARK: - Mic Mute State (F9)
+
+    /// Master switch for F9 mic mute. Persisted per-device, default true.
+    var micMuteEnabled: Bool = true
+    /// Whether the mic-mute CID is currently diverted via HID++ (primary path).
+    /// When false, the F9KeyMonitor event tap acts as fallback.
+    var micMuteDivertActive: Bool = false
+    /// CID of the mic-mute control, once identified via discovery. Nil until then.
+    var micMuteCID: UInt16?
+    /// Cached SpecialKeys (0x1B04) feature index for notification routing.
+    var specialKeysFeatureIndex: UInt8?
+    /// Last press state of the diverted mic-mute CID, for press-edge detection.
+    private var lastMicMutePressed: Bool = false
+
+    /// Injectable mic-mute action for tests. Defaults to engine + overlay.
+    var onMicMuteKeypress: (() -> Void)?
+
     // MARK: - Host Info
 
     var currentHostIndex: Int = 0
@@ -76,6 +93,9 @@ final class KeyboardDevice: LogiDevice, @unchecked Sendable {
             do { try await loadHostInfo() }
             catch { errors.append("HostInfo: \(error.localizedDescription)"); debugLog("[KeyboardDevice] HostInfo load failed: \(error)") }
         }
+
+        // Mic mute (0x1B04 divert if available, else F9KeyMonitor fallback)
+        await loadMicMute()
 
         isFeaturesLoaded = true
         if errors.isEmpty {
@@ -307,6 +327,183 @@ final class KeyboardDevice: LogiDevice, @unchecked Sendable {
 
         fnInverted = inverted
         logger.info("[KeyboardDevice] Fn inversion set to \(inverted)")
+    }
+
+    // MARK: - Mic Mute (F9)
+
+    /// Enumerate remappable controls and divert the mic-mute CID when found.
+    ///
+    /// v1: enumerates and logs every control (CID/TID/flags with public privacy
+    /// so discovery is visible in unified logs), then diverts only a positively
+    /// identified mic-mute CID. Until the CID is known, the F9KeyMonitor event
+    /// tap acts as fallback — see `DeviceManager.refreshMicMuteState()`.
+    func loadMicMute() async {
+        micMuteEnabled = SettingsStore.loadKeyboardSettings(deviceName: name).micMuteEnabled ?? true
+        guard micMuteEnabled else {
+            debugLog("[KeyboardDevice] Mic mute disabled for \(name) — skipping")
+            return
+        }
+        await setupMicMuteDivert()
+    }
+
+    /// Enumerate controls and divert the mic-mute CID when identified.
+    /// Trusts the live `micMuteEnabled` flag (already resolved by the caller).
+    func setupMicMuteDivert() async {
+        guard hasFeature(SpecialKeysFeature.featureId) else {
+            logger.info("[KeyboardDevice] No 0x1B04 feature — mic mute via F9KeyMonitor fallback")
+            return
+        }
+
+        do {
+            let idx = try await featureIndexCache.resolve(
+                featureId: SpecialKeysFeature.featureId,
+                transport: transport,
+                deviceIndex: deviceIndex
+            )
+            specialKeysFeatureIndex = idx
+
+            let controls = try await SpecialKeysFeature.enumerateControls(
+                transport: transport,
+                deviceIndex: deviceIndex,
+                featureIndex: idx
+            )
+
+            for control in controls {
+                debugLog("[KeyboardDevice] Control CID=\(String(format: "0x%04X", control.controlId)) TID=\(String(format: "0x%04X", control.taskId)) flags=0x\(String(format: "%04X", control.flags.rawValue)) pos=\(control.position) group=\(control.group)")
+            }
+            logger.info("[KeyboardDevice] Enumerated \(controls.count) controls via 0x1B04")
+
+            if let cid = Self.micMuteCID(in: controls) {
+                try await divertMicMuteCID(cid, featureIndex: idx)
+            } else {
+                logger.info("[KeyboardDevice] Mic-mute CID not identified — using F9KeyMonitor fallback")
+                NotificationCenter.default.post(name: .micMuteConfigChanged, object: nil)
+            }
+        } catch {
+            debugLog("[KeyboardDevice] Mic mute setup failed: \(error)")
+            logger.warning("[KeyboardDevice] Mic mute setup failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// Identify the mic-mute control among enumerated controls.
+    ///
+    /// Discovery on MX Keys Mini (firmware v73.x, HID++ 4.5) shows F-row keys
+    /// at positions 1-12 mapping to F1-F12 in order. F9 (mic icon) is position 9
+    /// = CID 0x011C (divertable FN key). Verified by diverting and observing
+    /// divertedButtonsEvent on F9 press.
+    ///
+    /// The match requires divertable + F-row position 9 + FN key flag so a
+    /// firmware remap cannot silently divert the wrong key.
+    static func micMuteCID(in controls: [SpecialKeysFeature.ControlInfo]) -> UInt16? {
+        let candidate: UInt16 = 0x011C
+        guard let match = controls.first(where: { $0.controlId == candidate }),
+              match.isDivertable,
+              match.position == 9,
+              match.flags.contains(.fnKey)
+        else {
+            return nil
+        }
+        return match.controlId
+    }
+
+    /// Divert the mic-mute CID so presses arrive as HID++ notifications.
+    private func divertMicMuteCID(_ cid: UInt16, featureIndex: UInt8) async throws {
+        try await SpecialKeysFeature.setCtrlIdReporting(
+            transport: transport,
+            deviceIndex: deviceIndex,
+            featureIndex: featureIndex,
+            controlId: cid,
+            divert: true,
+            // Volatile divert so the key recovers if MXControl is not running.
+            persistDivert: false
+        )
+        micMuteCID = cid
+        micMuteDivertActive = true
+        logger.info("[KeyboardDevice] Mic-mute CID 0x\(String(format: "%04X", cid), privacy: .public) diverted")
+        NotificationCenter.default.post(name: .micMuteConfigChanged, object: nil)
+    }
+
+    /// Clear an active mic-mute divert (e.g. when the feature is toggled off).
+    private func clearMicMuteDivert() async {
+        guard micMuteDivertActive, let cid = micMuteCID, let idx = specialKeysFeatureIndex else { return }
+        do {
+            try await SpecialKeysFeature.setCtrlIdReporting(
+                transport: transport,
+                deviceIndex: deviceIndex,
+                featureIndex: idx,
+                controlId: cid,
+                divert: false,
+                persistDivert: false
+            )
+        } catch {
+            debugLog("[KeyboardDevice] Failed to clear mic-mute divert: \(error)")
+        }
+        micMuteCID = nil
+        micMuteDivertActive = false
+    }
+
+    /// Enable or disable F9 mic mute at runtime (from UI toggle).
+    /// Trusts the passed value — the ToggleRow binding already flipped the live
+    /// flag; this only (un)arms the HID++ divert and notifies routing.
+    /// Persistence is handled by the caller via `SettingsStore.save(keyboard:)`.
+    func setMicMuteEnabled(_ enabled: Bool) async {
+        micMuteEnabled = enabled
+        if enabled {
+            await setupMicMuteDivert()
+        } else {
+            await clearMicMuteDivert()
+        }
+        NotificationCenter.default.post(name: .micMuteConfigChanged, object: nil)
+    }
+
+    /// Re-arm mic-mute divert after a BLE reconnection (volatile state may be lost).
+    /// When the CID was never identified (nil), retry full enumeration instead
+    /// of giving up — the earlier failure may have been transient.
+    func rearmMicMuteDivert() async {
+        guard micMuteEnabled else { return }
+        if micMuteCID == nil {
+            await setupMicMuteDivert()
+            return
+        }
+        guard let cid = micMuteCID, let idx = specialKeysFeatureIndex else { return }
+        do {
+            try await divertMicMuteCID(cid, featureIndex: idx)
+            logger.info("[KeyboardDevice] Mic-mute divert re-armed after BLE reconnection")
+        } catch {
+            // Divert lost and re-arm failed: mark inactive so the F9 fallback
+            // tap takes over instead of leaving F9 dead.
+            micMuteDivertActive = false
+            NotificationCenter.default.post(name: .micMuteConfigChanged, object: nil)
+            debugLog("[KeyboardDevice] rearmMicMuteDivert FAILED: \(error)")
+            logger.warning("[KeyboardDevice] Failed to re-arm mic-mute divert: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// Handle an unsolicited HID++ notification (diverted mic-mute presses).
+    func handleNotification(featureIndex: UInt8, functionId: UInt8, params: [UInt8]) {
+        guard let skIdx = specialKeysFeatureIndex, featureIndex == skIdx else { return }
+        guard functionId == 0x00 else { return }  // divertedButtonsEvent only
+        guard let cid = micMuteCID else { return }
+
+        let pressed = Set(SpecialKeysFeature.parseDivertedButtonsEvent(params: params))
+        let isDown = pressed.contains(cid)
+        let wasDown = lastMicMutePressed
+        lastMicMutePressed = isDown
+
+        if isDown && !wasDown {
+            fireMicMute()
+        }
+    }
+
+    /// Fire the mic-mute action: engine toggle + persistent muted pill.
+    /// The pill shows only while muted; unmute hides it with no overlay.
+    func fireMicMute() {
+        if let custom = onMicMuteKeypress {
+            custom()
+            return
+        }
+        let muted = MicMuteEngine.shared.toggleFromKeypress()
+        MicMuteOverlay.shared.reflect(muted: muted)
     }
 
     // MARK: - Refresh Battery

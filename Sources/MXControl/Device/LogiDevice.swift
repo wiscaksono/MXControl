@@ -137,15 +137,15 @@ class LogiDevice: Identifiable, @unchecked Sendable {
     /// Log a summary of the device for debugging.
     func printSummary() {
         logger.info("========================================")
-        logger.info("Device: \(self.name)")
-        logger.info("  Index: \(self.deviceIndex)")
-        logger.info("  Type: \(self.deviceKind.description)")
-        logger.info("  Protocol: \(self.protocolMajor).\(self.protocolMinor)")
-        logger.info("  Features (\(self.features.count)):")
+        logger.info("Device: \(self.name, privacy: .public)")
+        logger.info("  Index: \(self.deviceIndex, privacy: .public)")
+        logger.info("  Type: \(self.deviceKind.description, privacy: .public)")
+        logger.info("  Protocol: \(self.protocolMajor, privacy: .public).\(self.protocolMinor, privacy: .public)")
+        logger.info("  Features (\(self.features.count, privacy: .public)):")
         for feature in features {
             let knownName = DeviceRegistry.featureName(for: feature.featureId)
             let hidden = feature.isHidden ? " [hidden]" : ""
-            logger.info("    [\(feature.index)] \(String(format: "0x%04X", feature.featureId))  \(knownName)\(hidden)")
+            logger.info("    [\(feature.index, privacy: .public)] \(String(format: "0x%04X", feature.featureId), privacy: .public)  \(knownName, privacy: .public)\(hidden, privacy: .public)")
         }
         logger.info("========================================")
     }

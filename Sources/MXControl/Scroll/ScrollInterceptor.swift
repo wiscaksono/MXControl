@@ -24,13 +24,37 @@ final class ScrollInterceptor: @unchecked Sendable {
     /// the CGEventTap / transport background threads.
     private let flagLock = OSAllocatedUnfairLock()
 
-    private var _isRunning = false
-    var isRunning: Bool { _isRunning }
+    /// Guards the tap lifecycle (_isRunning, machPort, source, thread,
+    /// runloop, generation). NSLock — not OSAllocatedUnfairLock — because
+    /// withLock's @Sendable closure cannot capture non-Sendable CF types.
+    private let lock = NSLock()
 
-    fileprivate var machPort: CFMachPort?
+    private var _isRunning = false
+    var isRunning: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return _isRunning
+    }
+
+    fileprivate var machPort: CFMachPort? {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return _machPort
+        }
+        set {
+            lock.lock()
+            _machPort = newValue
+            lock.unlock()
+        }
+    }
+    private var _machPort: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
     private var tapThread: Thread?
     private var tapRunLoop: CFRunLoop?
+    /// Lifecycle generation: incremented on every start/stop so a late tap
+    /// install from a previous start can never leak past a stop.
+    private var _generation = 0
 
     /// The smoother that processes intercepted scroll deltas.
     let smoother = ScrollSmoother()
@@ -126,15 +150,18 @@ final class ScrollInterceptor: @unchecked Sendable {
     func handleHiResScroll(deltaV: Int16, hiRes: Bool) {
         let now = mach_absolute_time()
 
-        // Ring buffer: append timestamp, prune expired entries from head
-        let writeIdx = (ringHead + ringCount) % ringCapacity
-        timestampRing[writeIdx] = now
-        if ringCount < ringCapacity { ringCount += 1 } else { ringHead = (ringHead + 1) % ringCapacity }
-        while ringCount > 0 && (now &- timestampRing[ringHead]) > accelerationWindow {
-            ringHead = (ringHead + 1) % ringCapacity
-            ringCount -= 1
+        // Ring buffer: append timestamp, prune expired entries from head.
+        // Lock-protected: reachable from any transport thread.
+        let eventRate: Double = flagLock.withLock {
+            let writeIdx = (ringHead + ringCount) % ringCapacity
+            timestampRing[writeIdx] = now
+            if ringCount < ringCapacity { ringCount += 1 } else { ringHead = (ringHead + 1) % ringCapacity }
+            while ringCount > 0 && (now &- timestampRing[ringHead]) > accelerationWindow {
+                ringHead = (ringHead + 1) % ringCapacity
+                ringCount -= 1
+            }
+            return Double(ringCount)
         }
-        let eventRate = Double(ringCount)
 
         // Acceleration curve: maps event rate to multiplier.
         // ~1-2 events/100ms (slow) → 1.2x, ~30+ events (fast) → 4.0x cap
@@ -146,8 +173,9 @@ final class ScrollInterceptor: @unchecked Sendable {
         //               Use tick-based conversion (already divided by multiplier).
         let ppt = flagLock.withLock { _hiResPixelsPerTick }
         let basePx = hiRes ? ppt : 30.0
+        let natural = flagLock.withLock { _isNaturalScroll }
 
-        let scrollY = Double(deltaV) * basePx * acceleration * (_isNaturalScroll ? -1.0 : 1.0)
+        let scrollY = Double(deltaV) * basePx * acceleration * (natural ? -1.0 : 1.0)
         smoother.accumulate(deltaY: scrollY, deltaX: 0)
     }
 
@@ -168,14 +196,23 @@ final class ScrollInterceptor: @unchecked Sendable {
             object: nil,
             queue: nil
         ) { [weak self] _ in
-            self?._isNaturalScroll = UserDefaults.standard.bool(forKey: "com.apple.swipescrolldirection")
+            guard let self else { return }
+            // queue:nil delivers on an arbitrary thread — guard the write.
+            self.flagLock.withLock {
+                self._isNaturalScroll = UserDefaults.standard.bool(forKey: "com.apple.swipescrolldirection")
+            }
         }
     }
 
     // MARK: - Start / Stop
 
     func start() {
-        guard !_isRunning else { return }
+        lock.lock()
+        guard !_isRunning else {
+            lock.unlock()
+            return
+        }
+        lock.unlock()
 
         // Check accessibility permission
         guard AXIsProcessTrusted() else {
@@ -184,55 +221,77 @@ final class ScrollInterceptor: @unchecked Sendable {
             return
         }
 
+        lock.lock()
         _isRunning = true
+        _generation += 1
+        let generation = _generation
+        lock.unlock()
+
         smoother.start()
 
         // Create the event tap on a dedicated background thread
         let thread = Thread { [weak self] in
             guard let self else { return }
-            self.setupEventTap()
-            // Keep the thread alive via its run loop
-            CFRunLoopRun()
+            // Only run the runloop if this generation's tap installed.
+            if self.setupEventTap(generation: generation) {
+                CFRunLoopRun()
+            }
         }
         thread.name = "MXControl.ScrollInterceptor"
         thread.qualityOfService = .userInteractive
         thread.start()
-        tapThread = thread
+        lock.lock()
+        self.tapThread = thread
+        lock.unlock()
 
         logger.info("[ScrollInterceptor] Started")
     }
 
     func stop() {
-        guard _isRunning else { return }
+        lock.lock()
+        guard _isRunning else {
+            lock.unlock()
+            return
+        }
+        // Invalidate the generation first so a concurrent late install
+        // cleans itself up instead of leaking.
+        _generation += 1
+        let port = _machPort
+        let source = runLoopSource
+        let runLoop = tapRunLoop
+        lock.unlock()
 
         smoother.stop()
 
-        if let port = machPort {
+        if let port {
             CGEvent.tapEnable(tap: port, enable: false)
         }
-        if let source = runLoopSource {
+        if let source {
             CFRunLoopSourceInvalidate(source)
         }
-        if let port = machPort {
+        if let port {
             CFMachPortInvalidate(port)
         }
-        if let rl = tapRunLoop {
+        if let rl = runLoop {
             CFRunLoopStop(rl)
         }
 
-        machPort = nil
+        lock.lock()
+        _machPort = nil
         runLoopSource = nil
         tapRunLoop = nil
-        tapThread?.cancel()
         tapThread = nil
-
         _isRunning = false
+        lock.unlock()
         logger.info("[ScrollInterceptor] Stopped")
     }
 
     // MARK: - Event Tap Setup
 
-    private func setupEventTap() {
+    /// Install the tap for the given start generation. Returns false when this
+    /// generation is already stale (stop raced start) or creation failed, in
+    /// which case the caller must NOT run the runloop.
+    private func setupEventTap(generation: Int) -> Bool {
         let eventMask = CGEventMask(1 << CGEventType.scrollWheel.rawValue)
 
         // Store self in a raw pointer for the C callback
@@ -247,20 +306,43 @@ final class ScrollInterceptor: @unchecked Sendable {
             userInfo: refcon
         ) else {
             logger.error("[ScrollInterceptor] Failed to create CGEventTap — check Accessibility permission")
-            _isRunning = false
-            return
+            lock.lock()
+            // Only clear running state if no newer start/stop superseded us.
+            if _generation == generation {
+                _isRunning = false
+            }
+            lock.unlock()
+            return false
         }
 
-        machPort = port
+        lock.lock()
+        guard _generation == generation && _isRunning else {
+            lock.unlock()
+            // Stale: stop() already ran. Tear down immediately so nothing leaks.
+            CFMachPortInvalidate(port)
+            return false
+        }
+        _machPort = port
+        lock.unlock()
 
         let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, port, 0)
+        lock.lock()
+        guard _generation == generation && _isRunning else {
+            lock.unlock()
+            CFMachPortInvalidate(port)
+            return false
+        }
         runLoopSource = source
+        lock.unlock()
 
+        lock.lock()
         tapRunLoop = CFRunLoopGetCurrent()
+        lock.unlock()
         CFRunLoopAddSource(CFRunLoopGetCurrent(), source, .defaultMode)
         CGEvent.tapEnable(tap: port, enable: true)
 
         debugLog("[ScrollInterceptor] Event tap installed")
+        return true
     }
 }
 

@@ -57,7 +57,7 @@ final class MicMuteBehavior: DeviceBehavior {
             )
             device.specialKeysFeatureIndex = idx
 
-            let controls = try await SpecialKeysFeature.enumerateControls(
+            let controls = try await DivertService.enumerate(
                 transport: device.transport,
                 deviceIndex: device.deviceIndex,
                 featureIndex: idx
@@ -96,14 +96,11 @@ final class MicMuteBehavior: DeviceBehavior {
     // MARK: - Divert
 
     private func divert(cid: UInt16, featureIndex: UInt8) async throws {
-        try await SpecialKeysFeature.setCtrlIdReporting(
+        try await DivertService.divert(
+            cid,
             transport: device.transport,
             deviceIndex: device.deviceIndex,
-            featureIndex: featureIndex,
-            controlId: cid,
-            divert: true,
-            // Volatile divert so the key recovers if MXControl is not running.
-            persistDivert: false
+            featureIndex: featureIndex
         )
         micCID = cid
         divertActive = true
@@ -115,13 +112,11 @@ final class MicMuteBehavior: DeviceBehavior {
     func clearDivert() async {
         guard divertActive, let cid = micCID, let idx = device.specialKeysFeatureIndex else { return }
         do {
-            try await SpecialKeysFeature.setCtrlIdReporting(
+            try await DivertService.undivert(
+                cid,
                 transport: device.transport,
                 deviceIndex: device.deviceIndex,
-                featureIndex: idx,
-                controlId: cid,
-                divert: false,
-                persistDivert: false
+                featureIndex: idx
             )
         } catch {
             debugLog("[MicMuteBehavior] Failed to clear divert: \(error)")

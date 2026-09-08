@@ -3,34 +3,35 @@ import MXControlHIDPP
 
 // MARK: - Capability Model
 
-/// Stable capability identifiers. Each id doubles as the UserDefaults key
-/// suffix (`mxcontrol.{device}.{id}`) — never rename an id without a migration.
-enum CapabilityID {
-    static let battery = "battery"
-    static let dpi = "dpi"
-    static let pointerSpeed = "pointer_speed"
-    static let smartShiftWheelMode = "smartshift.wheel_mode"
-    static let smartShiftActive = "smartshift.active"
-    static let smartShiftTorque = "smartshift.torque"
-    static let hiResEnabled = "hires.enabled"
-    static let hiResInverted = "hires.inverted"
-    static let thumbWheelInverted = "thumbwheel.inverted"
-    static let smoothScrollEnabled = "smooth_scroll.enabled"
-    static let smoothScrollSpeed = "smooth_scroll.speed"
-    static let smoothScrollMomentum = "smooth_scroll.momentum"
-    static let smoothScrollThumbSpeed = "smooth_scroll.thumb_speed"
-    static let gestureClickMs = "gesture.click_time_ms"
-    static let gestureDragThreshold = "gesture.drag_threshold"
-    static let backlightEnabled = "backlight.enabled"
-    static let backlightLevel = "backlight.level"
-    static let fnStandardKeys = "fn.standard_keys"
-    static let micMuteEnabled = "micmute.enabled"
-    static let hosts = "hosts"
+/// Stable capability identifiers. Each case doubles as the UserDefaults key
+/// suffix (`mxcontrol.{device}.{rawValue}`) — never rename a raw value
+/// without a migration. Switches over this enum are exhaustive (no default)
+/// so adding a capability forces every dispatch site to handle it.
+enum CapabilityID: String, Sendable, CaseIterable {
+    case battery
+    case dpi
+    case pointerSpeed = "pointer_speed"
+    case smartShiftWheelMode = "smartshift.wheel_mode"
+    case smartShiftActive = "smartshift.active"
+    case smartShiftTorque = "smartshift.torque"
+    case hiResEnabled = "hires.enabled"
+    case hiResInverted = "hires.inverted"
+    case thumbWheelInverted = "thumbwheel.inverted"
+    case smoothScrollEnabled = "smooth_scroll.enabled"
+    case smoothScrollSpeed = "smooth_scroll.speed"
+    case smoothScrollMomentum = "smooth_scroll.momentum"
+    case smoothScrollThumbSpeed = "smooth_scroll.thumb_speed"
+    case gestureClickMs = "gesture.click_time_ms"
+    case gestureDragThreshold = "gesture.drag_threshold"
+    case backlightEnabled = "backlight.enabled"
+    case backlightLevel = "backlight.level"
+    case fnStandardKeys = "fn.standard_keys"
+    case micMuteEnabled = "micmute.enabled"
+    case hosts
 }
 
 /// One user-facing controllable backed by a HID++ feature (or local service state).
-struct DeviceCapability: Sendable {
-    enum Kind: Sendable {
+struct DeviceCapability: Sendable {    enum Kind: Sendable {
         case toggle
         case intSlider
         case doubleSlider
@@ -39,7 +40,7 @@ struct DeviceCapability: Sendable {
         case info
     }
 
-    let id: String
+    let id: CapabilityID
     /// HID++ feature backing this capability.
     /// Nil = resolved dynamically at load (multi-variant features like
     /// backlight v2/v3) or local-only (smooth scroll, gesture thresholds).
@@ -55,7 +56,7 @@ struct DeviceCapability: Sendable {
     let hidden: Bool
 
     init(
-        id: String,
+        id: CapabilityID,
         featureId: UInt16?,
         label: String,
         subtitle: String?,

@@ -48,8 +48,9 @@ extension DeviceDetailView {
     }
 
     private var wheelModeBinding: Binding<Int> {
-        Binding(
-            get: { device.segmented[CapabilityID.smartShiftWheelMode]?.selected ?? 2 },
+        let fallback = Int(SmartShiftFeature.WheelMode.ratchet.rawValue)
+        return Binding(
+            get: { device.segmented[CapabilityID.smartShiftWheelMode]?.selected ?? fallback },
             set: {
                 device.segmented[CapabilityID.smartShiftWheelMode]?.selected = $0
                 commit(CapabilityID.smartShiftWheelMode)
@@ -71,15 +72,7 @@ extension DeviceDetailView {
 
             if (device.toggles[CapabilityID.smoothScrollEnabled]?.value ?? false)
                 && !MacActions.hasAccessibilityPermission() {
-                HStack(alignment: .top, spacing: 6) {
-                    Image(systemName: "exclamationmark.triangle")
-                        .font(.system(size: 10))
-                        .foregroundStyle(.orange)
-                    Text("Accessibility permission required. Grant in System Settings > Privacy & Security > Accessibility.")
-                        .font(.system(size: 10))
-                        .foregroundStyle(.tertiary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+                WarningBanner(text: "Accessibility permission required. Grant in System Settings > Privacy & Security > Accessibility.")
             }
         }
         .padding(.vertical, 6)
@@ -149,15 +142,7 @@ extension DeviceDetailView {
             .buttonStyle(.plain)
 
             if !(device.micMuteBehavior?.divertActive ?? false) && !MacActions.hasAccessibilityPermission() {
-                HStack(alignment: .top, spacing: 6) {
-                    Image(systemName: "exclamationmark.triangle")
-                        .font(.system(size: 10))
-                        .foregroundStyle(.orange)
-                    Text("Accessibility permission required for F9 intercept. Grant in System Settings > Privacy & Security > Accessibility.")
-                        .font(.system(size: 10))
-                        .foregroundStyle(.tertiary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+                WarningBanner(text: "Accessibility permission required for F9 intercept. Grant in System Settings > Privacy & Security > Accessibility.")
             }
         }
         .padding(.vertical, 6)
@@ -298,15 +283,7 @@ extension DeviceDetailView {
                             .padding(.bottom, 2)
 
                         if !MacActions.hasAccessibilityPermission() {
-                            HStack(alignment: .top, spacing: 6) {
-                                Image(systemName: "exclamationmark.triangle")
-                                    .font(.system(size: 10))
-                                    .foregroundStyle(.orange)
-                                Text("Accessibility permission required for gestures.")
-                                    .font(.system(size: 10))
-                                    .foregroundStyle(.tertiary)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
+                            WarningBanner(text: "Accessibility permission required for gestures.")
                         }
 
                         if device.ints[CapabilityID.gestureClickMs] != nil {
@@ -340,14 +317,14 @@ extension DeviceDetailView {
 
     // MARK: - Slider Bindings
 
-    private func intBinding(_ id: String) -> Binding<Int> {
+    private func intBinding(_ id: CapabilityID) -> Binding<Int> {
         Binding(
             get: { device.ints[id]?.value ?? 0 },
             set: { device.ints[id]?.value = $0 }
         )
     }
 
-    private func doubleBinding(_ id: String) -> Binding<Double> {
+    private func doubleBinding(_ id: CapabilityID) -> Binding<Double> {
         Binding(
             get: { device.doubles[id]?.value ?? 0 },
             set: { device.doubles[id]?.value = $0 }

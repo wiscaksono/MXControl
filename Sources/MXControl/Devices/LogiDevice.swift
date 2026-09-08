@@ -38,10 +38,10 @@ class LogiDevice: Identifiable, @unchecked Sendable {
 
     // MARK: - Capability States
 
-    var toggles: [String: ToggleState] = [:]
-    var ints: [String: IntSliderState] = [:]
-    var doubles: [String: DoubleSliderState] = [:]
-    var segmented: [String: SegmentedState] = [:]
+    var toggles: [CapabilityID: ToggleState] = [:]
+    var ints: [CapabilityID: IntSliderState] = [:]
+    var doubles: [CapabilityID: DoubleSliderState] = [:]
+    var segmented: [CapabilityID: SegmentedState] = [:]
     let battery = BatteryState()
     let hosts = HostListState()
 
@@ -176,17 +176,17 @@ class LogiDevice: Identifiable, @unchecked Sendable {
     // MARK: - Capabilities
 
     /// Capability ids sharing one loader invocation.
-    private static func loaderGroup(for id: String) -> String {
+    private static func loaderGroup(for id: CapabilityID) -> String {
         switch id {
-        case CapabilityID.smartShiftWheelMode, CapabilityID.smartShiftActive,
-             CapabilityID.smartShiftTorque:
+        case .smartShiftWheelMode, .smartShiftActive,
+             .smartShiftTorque:
             return "smartshift"
-        case CapabilityID.backlightEnabled, CapabilityID.backlightLevel:
+        case .backlightEnabled, .backlightLevel:
             return "backlight"
-        case CapabilityID.hiResEnabled, CapabilityID.hiResInverted:
+        case .hiResEnabled, .hiResInverted:
             return "hires"
         default:
-            return id
+            return id.rawValue
         }
     }
 
@@ -244,7 +244,15 @@ class LogiDevice: Identifiable, @unchecked Sendable {
     }
 
     /// Write one capability's current state to the device and persist it.
-    func commit(_ id: String) async {
+    /// No-op when the device has no state for the id (e.g. feature missing
+    /// or load failed) so a UI toggle can never persist a fallback default.
+    func commit(_ id: CapabilityID) async {
+        guard toggles[id] != nil || ints[id] != nil
+            || doubles[id] != nil || segmented[id] != nil
+        else {
+            debugLog("[LogiDevice] Commit \(id.rawValue) ignored: no state")
+            return
+        }
         await CapabilityHandlers.commit(id, on: self)
     }
 
@@ -278,7 +286,7 @@ class LogiDevice: Identifiable, @unchecked Sendable {
     func refreshBattery() async {
         guard hasFeature(BatteryFeature.featureId) else { return }
         let errorCount = loadErrors.count
-        await CapabilityHandlers.load(CapabilityID.battery, on: self)
+        await CapabilityHandlers.load(.battery, on: self)
         if loadErrors.count > errorCount {
             loadErrors.removeLast(loadErrors.count - errorCount)
         }

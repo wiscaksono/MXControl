@@ -186,9 +186,7 @@ struct MenuBarView: View {
                         .multilineTextAlignment(.center)
 
                     Button {
-                        deviceManager.stopDiscovery()
-                        deviceManager.devices.removeAll()
-                        deviceManager.startDiscovery()
+                        rescanDevices()
                     } label: {
                         Text("Scan for Devices")
                             .font(.system(size: 11))
@@ -235,9 +233,7 @@ struct MenuBarView: View {
 
     private var retryButton: some View {
         Button {
-            deviceManager.stopDiscovery()
-            deviceManager.devices.removeAll()
-            deviceManager.startDiscovery()
+            rescanDevices()
         } label: {
             Text("Retry")
                 .font(.system(size: 11))
@@ -347,7 +343,7 @@ struct MenuBarView: View {
 
             Spacer()
 
-            Image(systemName: iconForDevice(device))
+            Image(systemName: deviceIconName(for: device.deviceType))
                 .font(.system(size: 13))
                 .foregroundStyle(.secondary)
 
@@ -356,17 +352,7 @@ struct MenuBarView: View {
                 .lineLimit(1)
 
             if let transport = deviceManager.transportType(for: device) {
-                Text(transport.rawValue)
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundStyle(transport == .ble ? .blue : .secondary)
-                    .padding(.horizontal, 4)
-                    .padding(.vertical, 1)
-                    .background(
-                        RoundedRectangle(cornerRadius: 3)
-                            .fill(transport == .ble
-                                ? Color.blue.opacity(0.12)
-                                : Color.secondary.opacity(0.12))
-                    )
+                TransportBadge(type: transport)
             }
         }
         .padding(.horizontal, 12)
@@ -381,7 +367,7 @@ struct MenuBarView: View {
 
             Spacer()
 
-            Image(systemName: iconForBLEDevice(bleDevice))
+            Image(systemName: deviceIconName(for: bleDevice.deviceType))
                 .font(.system(size: 13))
                 .foregroundStyle(.secondary)
 
@@ -389,15 +375,7 @@ struct MenuBarView: View {
                 .font(.system(size: 13, weight: .medium))
                 .lineLimit(1)
 
-            Text("BLE")
-                .font(.system(size: 9, weight: .medium))
-                .foregroundStyle(.blue)
-                .padding(.horizontal, 4)
-                .padding(.vertical, 1)
-                .background(
-                    RoundedRectangle(cornerRadius: 3)
-                        .fill(Color.blue.opacity(0.12))
-                )
+            TransportBadge(type: .ble)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
@@ -417,24 +395,6 @@ struct MenuBarView: View {
     }
 
     private func rescanDevices() {
-        deviceManager.stopDiscovery()
-        deviceManager.devices.removeAll()
-        deviceManager.startDiscovery()
-    }
-
-    private func iconForDevice(_ device: LogiDevice) -> String {
-        switch device.deviceType {
-        case .mouse: return "computermouse.fill"
-        case .keyboard: return "keyboard.fill"
-        default: return "questionmark.circle"
-        }
-    }
-
-    private func iconForBLEDevice(_ info: BLEPeripheralInfo) -> String {
-        switch info.deviceType {
-        case .mouse: return "computermouse.fill"
-        case .keyboard: return "keyboard.fill"
-        default: return "questionmark.circle"
-        }
+        deviceManager.rescan()
     }
 }

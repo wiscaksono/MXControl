@@ -9,12 +9,12 @@ import Observation
 /// values and calls commit on change.
 @Observable
 final class ToggleState: Identifiable, @unchecked Sendable {
-    let id: String
+    let id: CapabilityID
     let label: String
     let subtitle: String?
     var value: Bool
 
-    init(id: String, label: String, subtitle: String?, value: Bool) {
+    init(id: CapabilityID, label: String, subtitle: String?, value: Bool) {
         self.id = id
         self.label = label
         self.subtitle = subtitle
@@ -24,14 +24,14 @@ final class ToggleState: Identifiable, @unchecked Sendable {
 
 @Observable
 final class IntSliderState: Identifiable, @unchecked Sendable {
-    let id: String
+    let id: CapabilityID
     let label: String
     var value: Int
     var range: ClosedRange<Int>
     var step: Int
     var suffix: String
 
-    init(id: String, label: String, value: Int, range: ClosedRange<Int>, step: Int, suffix: String = "") {
+    init(id: CapabilityID, label: String, value: Int, range: ClosedRange<Int>, step: Int, suffix: String = "") {
         self.id = id
         self.label = label
         self.value = value
@@ -43,7 +43,7 @@ final class IntSliderState: Identifiable, @unchecked Sendable {
 
 @Observable
 final class DoubleSliderState: Identifiable, @unchecked Sendable {
-    let id: String
+    let id: CapabilityID
     let label: String
     var value: Double
     var range: ClosedRange<Double>
@@ -51,7 +51,7 @@ final class DoubleSliderState: Identifiable, @unchecked Sendable {
     var format: String
     var suffix: String
 
-    init(id: String, label: String, value: Double, range: ClosedRange<Double>, step: Double, format: String = "%.1f", suffix: String = "") {
+    init(id: CapabilityID, label: String, value: Double, range: ClosedRange<Double>, step: Double, format: String = "%.1f", suffix: String = "") {
         self.id = id
         self.label = label
         self.value = value
@@ -70,12 +70,12 @@ final class SegmentedState: Identifiable, @unchecked Sendable {
         var id: Int { rawValue }
     }
 
-    let id: String
+    let id: CapabilityID
     let label: String
     var selected: Int
     let options: [Option]
 
-    init(id: String, label: String, selected: Int, options: [Option]) {
+    init(id: CapabilityID, label: String, selected: Int, options: [Option]) {
         self.id = id
         self.label = label
         self.selected = selected

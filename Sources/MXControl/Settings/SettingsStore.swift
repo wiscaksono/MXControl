@@ -33,10 +33,26 @@ enum SettingsStore {
         defaults.set(value, forKey: key(deviceName, setting))
     }
 
+    static func saveValue(_ value: Bool, _ id: CapabilityID, deviceName: String) {
+        saveValue(value, id.rawValue, deviceName: deviceName)
+    }
+
+    static func saveValue(_ value: Int, _ id: CapabilityID, deviceName: String) {
+        saveValue(value, id.rawValue, deviceName: deviceName)
+    }
+
+    static func saveValue(_ value: Double, _ id: CapabilityID, deviceName: String) {
+        saveValue(value, id.rawValue, deviceName: deviceName)
+    }
+
     /// Load one capability value. Returns nil when never saved.
     /// Type-safe: a value saved as another type does not match.
     static func savedValue<T>(_ setting: String, deviceName: String) -> T? {
         defaults.object(forKey: key(deviceName, setting)) as? T
+    }
+
+    static func savedValue<T>(_ id: CapabilityID, deviceName: String) -> T? {
+        savedValue(id.rawValue, deviceName: deviceName)
     }
 
     /// Remove all saved settings for a device by clearing keys with the

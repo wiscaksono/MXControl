@@ -65,12 +65,12 @@ struct DeviceDetailView: View {
         device.descriptor.capabilities.filter { capability in
             guard !capability.hidden, !capability.advanced else { return false }
             switch capability.id {
-            case CapabilityID.battery, CapabilityID.hosts,
-                 CapabilityID.backlightLevel, CapabilityID.pointerSpeed,
-                 CapabilityID.hiResEnabled, CapabilityID.smartShiftTorque,
-                 CapabilityID.dpi, CapabilityID.smoothScrollSpeed,
-                 CapabilityID.smoothScrollMomentum, CapabilityID.smoothScrollThumbSpeed,
-                 CapabilityID.gestureClickMs, CapabilityID.gestureDragThreshold:
+            case .battery, .hosts,
+                 .backlightLevel, .pointerSpeed,
+                 .hiResEnabled, .smartShiftTorque,
+                 .dpi, .smoothScrollSpeed,
+                 .smoothScrollMomentum, .smoothScrollThumbSpeed,
+                 .gestureClickMs, .gestureDragThreshold:
                 return false
             default:
                 break
@@ -96,7 +96,7 @@ struct DeviceDetailView: View {
                 return device.toggles[capability.id] != nil
             case .intSlider:
                 // Thumb speed renders inside the thumb-wheel section, not here.
-                if capability.id == CapabilityID.smoothScrollThumbSpeed { return false }
+                if capability.id == .smoothScrollThumbSpeed { return false }
                 return device.ints[capability.id] != nil
             case .doubleSlider:
                 return device.doubles[capability.id] != nil
@@ -111,17 +111,17 @@ struct DeviceDetailView: View {
     @ViewBuilder
     private func capabilitySection(_ capability: DeviceCapability) -> some View {
         switch capability.id {
-        case CapabilityID.smartShiftWheelMode:
+        case .smartShiftWheelMode:
             wheelModeSection
-        case CapabilityID.smoothScrollEnabled:
+        case .smoothScrollEnabled:
             smoothScrollSection
-        case CapabilityID.micMuteEnabled:
+        case .micMuteEnabled:
             micMuteSection
-        case CapabilityID.backlightEnabled:
+        case .backlightEnabled:
             backlightSection
-        case CapabilityID.fnStandardKeys:
+        case .fnStandardKeys:
             fnKeysSection
-        case CapabilityID.thumbWheelInverted:
+        case .thumbWheelInverted:
             thumbWheelSection
         default:
             if let state = device.toggles[capability.id] {
@@ -132,14 +132,14 @@ struct DeviceDetailView: View {
 
     // MARK: - Bindings (internal for section builders)
 
-    func toggleBinding(_ id: String) -> Binding<Bool> {
+    func toggleBinding(_ id: CapabilityID) -> Binding<Bool> {
         Binding(
             get: { device.toggles[id]?.value ?? false },
             set: { device.toggles[id]?.value = $0 }
         )
     }
 
-    func commit(_ id: String) {
+    func commit(_ id: CapabilityID) {
         Task { [device] in
             await device.commit(id)
         }
@@ -177,16 +177,8 @@ struct DeviceDetailView: View {
     }
 
     private func featureWarningBanner(_ error: String) -> some View {
-        HStack(alignment: .top, spacing: 6) {
-            Image(systemName: "exclamationmark.triangle")
-                .font(.system(size: 10))
-                .foregroundStyle(.orange)
-            Text("Some features failed to load: \(error)")
-                .font(.system(size: 10))
-                .foregroundStyle(.tertiary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(.vertical, 4)
+        WarningBanner(text: "Some features failed to load: \(error)")
+            .padding(.vertical, 4)
     }
 
     // MARK: - Host Info

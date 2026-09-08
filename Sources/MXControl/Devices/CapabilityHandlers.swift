@@ -26,31 +26,31 @@ enum CapabilityHandlers {
             switch capability.kind {
             case .toggle:
                 let def: Bool = switch capability.id {
-                case CapabilityID.smoothScrollEnabled: true
-                case CapabilityID.micMuteEnabled: true
-                case CapabilityID.smartShiftActive: true
-                case CapabilityID.fnStandardKeys: true
-                case CapabilityID.backlightEnabled: true
+                case .smoothScrollEnabled: true
+                case .micMuteEnabled: true
+                case .smartShiftActive: true
+                case .fnStandardKeys: true
+                case .backlightEnabled: true
                 default: false
                 }
                 device.toggles[capability.id] = ToggleState(id: capability.id, label: capability.label, subtitle: capability.subtitle, value: def)
 
             case .intSlider:
                 let (def, range, step, suffix): (Int, ClosedRange<Int>, Int, String) = switch capability.id {
-                case CapabilityID.dpi: (1000, 200...8000, 50, " DPI")
-                case CapabilityID.smartShiftTorque: (50, 1...100, 1, "")
-                case CapabilityID.gestureClickMs: (200, 100...400, 10, "ms")
-                case CapabilityID.gestureDragThreshold: (200, 50...500, 10, "")
-                case CapabilityID.backlightLevel: (0, 0...8, 1, "")
+                case .dpi: (1000, 200...8000, 50, " DPI")
+                case .smartShiftTorque: (50, 1...100, 1, "")
+                case .gestureClickMs: (200, 100...400, 10, "ms")
+                case .gestureDragThreshold: (200, 50...500, 10, "")
+                case .backlightLevel: (0, 0...8, 1, "")
                 default: (0, 0...100, 1, "")
                 }
                 device.ints[capability.id] = IntSliderState(id: capability.id, label: capability.label, value: def, range: range, step: step, suffix: suffix)
 
             case .doubleSlider:
                 let (def, range, step, format, suffix): (Double, ClosedRange<Double>, Double, String, String) = switch capability.id {
-                case CapabilityID.smoothScrollSpeed: (3.0, 1.0...10.0, 0.5, "%.1f", "x")
-                case CapabilityID.smoothScrollMomentum: (0.92, 0.80...0.98, 0.01, "%.2f", "")
-                case CapabilityID.smoothScrollThumbSpeed: (1.0, 0.5...5.0, 0.5, "%.1f", "x")
+                case .smoothScrollSpeed: (3.0, 1.0...10.0, 0.5, "%.1f", "x")
+                case .smoothScrollMomentum: (0.92, 0.80...0.98, 0.01, "%.2f", "")
+                case .smoothScrollThumbSpeed: (1.0, 0.5...5.0, 0.5, "%.1f", "x")
                 default: (1.0, 0.0...1.0, 0.1, "%.1f", "")
                 }
                 device.doubles[capability.id] = DoubleSliderState(id: capability.id, label: capability.label, value: def, range: range, step: step, format: format, suffix: suffix)
@@ -77,61 +77,64 @@ enum CapabilityHandlers {
     /// Read one capability from the device, then override with any saved
     /// preference (writing it back so reconnects restore settings).
     /// Each arm is fault-isolated: failure appends to `device.loadErrors`.
-    static func load(_ id: String, on device: LogiDevice) async {
+    /// Exhaustive over CapabilityID (no default) so new capabilities cannot
+    /// silently skip loading.
+    static func load(_ id: CapabilityID, on device: LogiDevice) async {
         do {
             switch id {
-            case CapabilityID.battery: try await loadBattery(on: device)
-            case CapabilityID.dpi: try await loadDPI(on: device)
-            case CapabilityID.pointerSpeed: try await loadPointerSpeed(on: device)
-            case CapabilityID.smartShiftWheelMode, CapabilityID.smartShiftActive, CapabilityID.smartShiftTorque:
+            case .battery: try await loadBattery(on: device)
+            case .dpi: try await loadDPI(on: device)
+            case .pointerSpeed: try await loadPointerSpeed(on: device)
+            case .smartShiftWheelMode, .smartShiftActive, .smartShiftTorque:
                 try await loadSmartShift(on: device)
-            case CapabilityID.hiResEnabled, CapabilityID.hiResInverted:
+            case .hiResEnabled, .hiResInverted:
                 break // Loaded by ScrollBehavior (needs service sync ordering).
-            case CapabilityID.thumbWheelInverted: try await loadThumbWheel(on: device)
-            case CapabilityID.backlightEnabled, CapabilityID.backlightLevel:
+            case .thumbWheelInverted: try await loadThumbWheel(on: device)
+            case .backlightEnabled, .backlightLevel:
                 try await loadBacklight(on: device)
-            case CapabilityID.fnStandardKeys: try await loadFnStandardKeys(on: device)
-            case CapabilityID.hosts: try await loadHosts(on: device)
-            case CapabilityID.smoothScrollEnabled, CapabilityID.smoothScrollSpeed,
-                 CapabilityID.smoothScrollMomentum, CapabilityID.smoothScrollThumbSpeed,
-                 CapabilityID.gestureClickMs, CapabilityID.gestureDragThreshold,
-                 CapabilityID.micMuteEnabled:
+            case .fnStandardKeys: try await loadFnStandardKeys(on: device)
+            case .hosts: try await loadHosts(on: device)
+            case .smoothScrollEnabled, .smoothScrollSpeed,
+                 .smoothScrollMomentum, .smoothScrollThumbSpeed,
+                 .gestureClickMs, .gestureDragThreshold,
+                 .micMuteEnabled:
                 loadLocal(id, on: device)
-            default:
-                break
             }
         } catch {
-            device.loadErrors.append("\(id): \(error.localizedDescription)")
-            debugLog("[CapabilityHandlers] Load \(id) failed: \(error)")
+            device.loadErrors.append("\(id.rawValue): \(error.localizedDescription)")
+            debugLog("[CapabilityHandlers] Load \(id.rawValue) failed: \(error)")
         }
     }
 
     // MARK: - Local (persisted, no device round-trip)
 
-    private static func loadLocal(_ id: String, on device: LogiDevice) {
+    private static func loadLocal(_ id: CapabilityID, on device: LogiDevice) {
         let store = SettingsStore.self
         switch id {
-        case CapabilityID.smoothScrollEnabled:
+        case .smoothScrollEnabled:
             if let v: Bool = store.savedValue(id, deviceName: device.name) { device.toggles[id]?.value = v }
-        case CapabilityID.smoothScrollSpeed:
+        case .smoothScrollSpeed:
             if let v: Double = store.savedValue(id, deviceName: device.name) { device.doubles[id]?.value = v }
-        case CapabilityID.smoothScrollMomentum:
+        case .smoothScrollMomentum:
             if let v: Double = store.savedValue(id, deviceName: device.name) { device.doubles[id]?.value = v }
-        case CapabilityID.smoothScrollThumbSpeed:
+        case .smoothScrollThumbSpeed:
             if let v: Double = store.savedValue(id, deviceName: device.name) { device.doubles[id]?.value = v }
-        case CapabilityID.gestureClickMs:
+        case .gestureClickMs:
             if let v: Int = store.savedValue(id, deviceName: device.name) {
                 device.ints[id]?.value = v
             } else if let legacy: Double = store.savedValue("gesture.click_time", deviceName: device.name) {
                 // Clamp: legacy seconds had no upper bound, the slider is 100...400ms.
                 device.ints[id]?.value = min(400, max(100, Int((legacy * 1000.0).rounded())))
             }
-        case CapabilityID.gestureDragThreshold:
+        case .gestureDragThreshold:
             if let v: Int = store.savedValue(id, deviceName: device.name) { device.ints[id]?.value = v }
-        case CapabilityID.micMuteEnabled:
+        case .micMuteEnabled:
             if let v: Bool = store.savedValue(id, deviceName: device.name) { device.toggles[id]?.value = v }
-        default:
-            break
+        case .battery, .dpi, .pointerSpeed,
+             .smartShiftWheelMode, .smartShiftActive, .smartShiftTorque,
+             .hiResEnabled, .hiResInverted, .thumbWheelInverted,
+             .backlightEnabled, .backlightLevel, .fnStandardKeys, .hosts:
+            break // Device-backed or behavior-loaded; never local-only.
         }
     }
 
@@ -387,10 +390,10 @@ enum CapabilityHandlers {
     // MARK: - Commit (UI → device + persist)
 
     /// Write the current state value to the device and persist it.
-    static func commit(_ id: String, on device: LogiDevice) async {
+    static func commit(_ id: CapabilityID, on device: LogiDevice) async {
         do {
             switch id {
-            case CapabilityID.dpi:
+            case .dpi:
                 let state = device.ints[id]
                 let idx = try await device.featureIndexCache.resolve(
                     featureId: AdjustableDPIFeature.featureId,
@@ -399,7 +402,7 @@ enum CapabilityHandlers {
                 try await writeDPI(state?.value ?? 1000, on: device, index: idx)
                 if let v = state?.value { SettingsStore.saveValue(v, id, deviceName: device.name) }
 
-            case CapabilityID.pointerSpeed:
+            case .pointerSpeed:
                 let idx = try await device.featureIndexCache.resolve(
                     featureId: PointerSpeedFeature.featureId,
                     transport: device.transport, deviceIndex: device.deviceIndex
@@ -411,7 +414,7 @@ enum CapabilityHandlers {
                 SettingsStore.saveValue(device.pointerSpeed, id, deviceName: device.name)
                 logger.info("[CapabilityHandlers] Pointer speed set to \(device.pointerSpeed)")
 
-            case CapabilityID.smartShiftWheelMode:
+            case .smartShiftWheelMode:
                 guard let mode = SmartShiftFeature.WheelMode(rawValue: UInt8(device.segmented[id]?.selected ?? 2)) else { return }
                 let idx = try await device.featureIndexCache.resolve(
                     featureId: SmartShiftFeature.featureId,
@@ -425,7 +428,7 @@ enum CapabilityHandlers {
                 SettingsStore.saveValue(Int(mode.rawValue), id, deviceName: device.name)
                 logger.info("[CapabilityHandlers] SmartShift wheel mode: \(mode)")
 
-            case CapabilityID.smartShiftActive:
+            case .smartShiftActive:
                 let enabled = device.toggles[id]?.value ?? true
                 let idx = try await device.featureIndexCache.resolve(
                     featureId: SmartShiftFeature.featureId,
@@ -439,7 +442,7 @@ enum CapabilityHandlers {
                 )
                 SettingsStore.saveValue(enabled, id, deviceName: device.name)
 
-            case CapabilityID.smartShiftTorque:
+            case .smartShiftTorque:
                 let torque = device.ints[id]?.value ?? 50
                 let idx = try await device.featureIndexCache.resolve(
                     featureId: SmartShiftFeature.featureId,
@@ -451,7 +454,7 @@ enum CapabilityHandlers {
                 )
                 SettingsStore.saveValue(torque, id, deviceName: device.name)
 
-            case CapabilityID.hiResEnabled, CapabilityID.hiResInverted:
+            case .hiResEnabled, .hiResInverted:
                 guard let idx = device.hiResScrollFeatureIndex else { return }
                 let hiRes = device.toggles[CapabilityID.hiResEnabled]?.value ?? true
                 let inverted = device.toggles[CapabilityID.hiResInverted]?.value ?? false
@@ -464,7 +467,7 @@ enum CapabilityHandlers {
                 SettingsStore.saveValue(hiRes, CapabilityID.hiResEnabled, deviceName: device.name)
                 SettingsStore.saveValue(inverted, CapabilityID.hiResInverted, deviceName: device.name)
 
-            case CapabilityID.thumbWheelInverted:
+            case .thumbWheelInverted:
                 let inverted = device.toggles[id]?.value ?? false
                 let idx = try await device.featureIndexCache.resolve(
                     featureId: ThumbWheelFeature.featureId,
@@ -476,7 +479,7 @@ enum CapabilityHandlers {
                 )
                 SettingsStore.saveValue(inverted, id, deviceName: device.name)
 
-            case CapabilityID.smoothScrollEnabled:
+            case .smoothScrollEnabled:
                 let enabled = device.toggles[id]?.value ?? false
                 ScrollInterceptor.shared.isEnabled = enabled
                 // Cancel any in-flight toggle so the final device state
@@ -485,26 +488,26 @@ enum CapabilityHandlers {
                 device.hiResTargetTask = Task { await device.scrollBehavior?.setTarget(enabled) }
                 SettingsStore.saveValue(enabled, id, deviceName: device.name)
 
-            case CapabilityID.smoothScrollSpeed:
+            case .smoothScrollSpeed:
                 let v = device.doubles[id]?.value ?? 3.0
                 ScrollInterceptor.shared.speedMultiplier = v
                 SettingsStore.saveValue(v, id, deviceName: device.name)
 
-            case CapabilityID.smoothScrollMomentum:
+            case .smoothScrollMomentum:
                 let v = device.doubles[id]?.value ?? 0.92
                 ScrollInterceptor.shared.momentumDecay = v
                 SettingsStore.saveValue(v, id, deviceName: device.name)
 
-            case CapabilityID.smoothScrollThumbSpeed:
+            case .smoothScrollThumbSpeed:
                 let v = device.doubles[id]?.value ?? 1.0
                 ScrollInterceptor.shared.thumbSpeedMultiplier = v
                 SettingsStore.saveValue(v, id, deviceName: device.name)
 
-            case CapabilityID.gestureClickMs, CapabilityID.gestureDragThreshold:
+            case .gestureClickMs, .gestureDragThreshold:
                 device.thumbGestureBehavior?.syncEngine()
                 if let v = device.ints[id]?.value { SettingsStore.saveValue(v, id, deviceName: device.name) }
 
-            case CapabilityID.backlightEnabled, CapabilityID.backlightLevel:
+            case .backlightEnabled, .backlightLevel:
                 guard let fid = device.backlightFid else { return }
                 let idx = try await device.featureIndexCache.resolve(
                     featureId: fid, transport: device.transport, deviceIndex: device.deviceIndex
@@ -515,7 +518,7 @@ enum CapabilityHandlers {
                 SettingsStore.saveValue(enabled, CapabilityID.backlightEnabled, deviceName: device.name)
                 SettingsStore.saveValue(level, CapabilityID.backlightLevel, deviceName: device.name)
 
-            case CapabilityID.fnStandardKeys:
+            case .fnStandardKeys:
                 let wantStandard = device.toggles[id]?.value ?? true
                 guard let fid = device.fnFid else { return }
                 let idx = try await device.featureIndexCache.resolve(
@@ -528,17 +531,17 @@ enum CapabilityHandlers {
                 )
                 SettingsStore.saveValue(wantStandard, id, deviceName: device.name)
 
-            case CapabilityID.micMuteEnabled:
+            case .micMuteEnabled:
                 let enabled = device.toggles[id]?.value ?? false
                 await device.micMuteBehavior?.setEnabled(enabled)
                 SettingsStore.saveValue(enabled, id, deviceName: device.name)
 
-            default:
-                break
+            case .battery, .hosts:
+                break // Display-only; nothing to write.
             }
         } catch {
-            debugLog("[CapabilityHandlers] Commit \(id) failed: \(error)")
-            logger.warning("[CapabilityHandlers] Commit \(id) failed: \(error.localizedDescription)")
+            debugLog("[CapabilityHandlers] Commit \(id.rawValue) failed: \(error)")
+            logger.warning("[CapabilityHandlers] Commit \(id.rawValue) failed: \(error.localizedDescription)")
         }
     }
 

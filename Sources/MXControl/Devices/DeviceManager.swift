@@ -225,13 +225,11 @@ final class DeviceManager {
 
     // MARK: - Scroll Target Reset
 
-    /// Reset HiResScroll target to HID mode on all connected mice.
+    /// Reset HiResScroll target to HID mode on all scroll devices.
     /// Called during app termination to ensure the scroll wheel works via macOS after exit.
-    func resetScrollTargetForAllMice() async {
+    func resetScrollTargetForAllDevices() async {
         for device in devices {
-            if let mouse = device as? MouseDevice {
-                await mouse.setHiResScrollTarget(false)
-            }
+            await device.resetHiResTarget()
         }
     }
 
@@ -242,9 +240,8 @@ final class DeviceManager {
     /// Flow:
     /// 1. Ping each index (1-6) with timeout to find active devices.
     /// 2. For each responding device, run base initialization (name + features).
-    /// 3. Based on deviceType, create MouseDevice or KeyboardDevice.
-    /// 4. Load device-specific features (battery, DPI, SmartShift, etc.).
-    /// 5. Apply saved settings from UserDefaults.
+    /// 3. Match a descriptor by HID++ name and load its capabilities
+    ///    (saved preferences are re-applied during capability load).
     private func probeReceiverDevices(receiverUID: String) async {
         guard let transport else { return }
         guard !isProbing else {
@@ -275,17 +272,17 @@ final class DeviceManager {
 
                 logger.info("[DeviceManager] Device found at index \(index), initializing...")
 
-                // Discover identity and create typed device (mouse/keyboard)
-                let probe = LogiDevice(deviceIndex: index, transport: adapter)
-                try await probe.initialize()
+                // Discover identity, match a descriptor, load capabilities.
+                let device = LogiDevice(deviceIndex: index, transport: adapter)
+                try await device.initialize()
 
                 // Track USB device names for BLE dedup
-                usbDeviceNames.insert(probe.name)
+                usbDeviceNames.insert(device.name)
 
                 // Check if this device is already connected via BLE — if so, remove the BLE version
-                removeDuplicateBLEDevice(name: probe.name)
+                removeDuplicateBLEDevice(name: device.name)
 
-                let device = await createTypedDevice(from: probe, adapter: adapter)
+                await finishDiscovery(device)
 
                 discovered.append(device)
                 uidToDeviceId["\(receiverUID):\(index)"] = device.id
@@ -329,33 +326,15 @@ final class DeviceManager {
 
     // MARK: - Typed Device Creation
 
-    /// Create a typed device (MouseDevice/KeyboardDevice) from a probe, reusing its
-    /// discovered identity and feature cache to avoid redundant HID++ round-trips.
-    private func createTypedDevice(
-        from probe: LogiDevice,
-        adapter: DeviceTransportAdapter
-    ) async -> LogiDevice {
-        switch probe.deviceType {
-        case .mouse:
-            let mouse = MouseDevice(deviceIndex: probe.deviceIndex, transport: adapter)
-            await mouse.transferIdentity(from: probe)
-            await mouse.loadMouseFeatures()
-            await SettingsStore.applyMouseSettings(to: mouse)
-            logger.info("[DeviceManager] Promoted \(probe.name) to MouseDevice")
-            return mouse
+    // MARK: - Descriptor Matching
 
-        case .keyboard:
-            let keyboard = KeyboardDevice(deviceIndex: probe.deviceIndex, transport: adapter)
-            await keyboard.transferIdentity(from: probe)
-            await keyboard.loadKeyboardFeatures()
-            await SettingsStore.applyKeyboardSettings(to: keyboard)
-            logger.info("[DeviceManager] Promoted \(probe.name) to KeyboardDevice")
-            return keyboard
-
-        default:
-            logger.info("[DeviceManager] \(probe.name) is unknown type, keeping as LogiDevice")
-            return probe
-        }
+    /// Match a descriptor, attach behaviors, and load capabilities.
+    /// Saved preferences are re-applied during capability load.
+    private func finishDiscovery(_ device: LogiDevice, pid: Int? = nil) async {
+        device.descriptor = DeviceDescriptors.match(pid: pid, name: device.name, kind: device.deviceKind)
+        device.attachBehaviors()
+        await device.loadCapabilities()
+        logger.info("[DeviceManager] \(device.name, privacy: .public) matched descriptor '\(device.descriptor.id, privacy: .public)'")
     }
 
     // MARK: - BLE Direct Device Initialization
@@ -408,16 +387,16 @@ final class DeviceManager {
             logger.info("[DeviceManager] BLE device \(info.name, privacy: .public) responded to ping")
 
             // Discover identity
-            let probe = LogiDevice(deviceIndex: deviceIndex, transport: adapter)
-            try await probe.initialize()
+            let device = LogiDevice(deviceIndex: deviceIndex, transport: adapter)
+            try await device.initialize()
 
             // Re-check dedup after initialization (name might differ from IOKit product name)
-            if usbDeviceNames.contains(probe.name) {
-                debugLog("[DeviceManager] BLE IOKit skip \(probe.name) — already on USB (post-init dedup)")
+            if usbDeviceNames.contains(device.name) {
+                debugLog("[DeviceManager] BLE IOKit skip \(device.name) — already on USB (post-init dedup)")
                 return
             }
 
-            let device = await createTypedDevice(from: probe, adapter: adapter)
+            await finishDiscovery(device, pid: info.pid)
 
             devices.append(device)
             deviceTransportType[device.id] = .ble
@@ -647,28 +626,16 @@ final class DeviceManager {
             return
         }
 
-        if let keyboard = devices.first(where: { $0.id == deviceId }) as? KeyboardDevice {
-            debugLog("[DeviceManager] BLE reconnected for \(keyboard.name) — re-arming mic-mute divert")
-            Task {
-                await keyboard.rearmMicMuteDivert()
-            }
+        guard let device = devices.first(where: { $0.id == deviceId }) else {
+            debugLog("[DeviceManager] BLE reconnected for uid=\(uid) but device is gone")
             return
         }
 
-        guard let mouse = devices.first(where: { $0.id == deviceId }) as? MouseDevice else {
-            debugLog("[DeviceManager] BLE reconnected for uid=\(uid) but device is not a mouse")
-            return
-        }
+        debugLog("[DeviceManager] BLE reconnected for \(device.name) — re-arming volatile state")
+        logger.info("[DeviceManager] BLE device \(device.name, privacy: .public) reconnected — re-arming volatile state")
 
-        debugLog("[DeviceManager] BLE reconnected for \(mouse.name) — re-arming volatile state")
-        logger.info("[DeviceManager] BLE device \(mouse.name, privacy: .public) reconnected — re-arming divert + scroll target")
-
-        Task {
-            await mouse.rearmThumbDivert()
-            // Re-arm HID++ scroll target mode (volatile flag lost during BLE reconnect)
-            if mouse.smoothScrollEnabled {
-                await mouse.setHiResScrollTarget(true)
-            }
+        Task { [device] in
+            await device.rearmVolatileState()
         }
     }
 
@@ -715,26 +682,15 @@ final class DeviceManager {
     private func setupNotificationRouting() {
         guard let transport else { return }
 
-        // Build a map from (senderUID, deviceIndex) → MouseDevice for routing
-        var mouseMap: [NotificationKey: MouseDevice] = [:]
-        var keyboardMap: [NotificationKey: KeyboardDevice] = [:]
+        // Build a map from (senderUID, deviceIndex) → device for routing.
+        var deviceMap: [NotificationKey: LogiDevice] = [:]
 
         for device in devices {
-            if let mouse = device as? MouseDevice {
-                if let uid = deviceIdToUID[device.id] {
-                    let transportType = deviceTransportType[device.id]
-                    mouseMap[NotificationKey(uid: uid, deviceIndex: mouse.deviceIndex)] = mouse
-                    if transportType == .ble {
-                        // BLE notifications arrive with deviceIndex=0xFF (broadcast/self-address)
-                        mouseMap[NotificationKey(uid: uid, deviceIndex: 255)] = mouse
-                    }
-                }
-            } else if let keyboard = device as? KeyboardDevice {
-                if let uid = deviceIdToUID[device.id] {
-                    keyboardMap[NotificationKey(uid: uid, deviceIndex: keyboard.deviceIndex)] = keyboard
-                    if deviceTransportType[device.id] == .ble {
-                        keyboardMap[NotificationKey(uid: uid, deviceIndex: 255)] = keyboard
-                    }
+            if let uid = deviceIdToUID[device.id] {
+                deviceMap[NotificationKey(uid: uid, deviceIndex: device.deviceIndex)] = device
+                if deviceTransportType[device.id] == .ble {
+                    // BLE notifications arrive with deviceIndex=0xFF (broadcast/self-address)
+                    deviceMap[NotificationKey(uid: uid, deviceIndex: 255)] = device
                 }
             }
         }
@@ -742,13 +698,13 @@ final class DeviceManager {
         // Snapshot hi-res scroll feature indices for fast-path routing on the transport thread.
         // These are read-only after setup, so capturing by value is safe.
         var hiResScrollIndices: [NotificationKey: UInt8] = [:]
-        for (key, mouse) in mouseMap {
-            if let hrIdx = mouse.hiResScrollFeatureIndex {
+        for (key, device) in deviceMap {
+            if let hrIdx = device.hiResScrollFeatureIndex {
                 hiResScrollIndices[key] = hrIdx
             }
         }
 
-        transport.notificationHandler = { [mouseMap, keyboardMap, hiResScrollIndices] senderUID, deviceIndex, featureIndex, functionId, params in
+        transport.notificationHandler = { [deviceMap, hiResScrollIndices] senderUID, deviceIndex, featureIndex, functionId, params in
             let key = NotificationKey(uid: senderUID, deviceIndex: deviceIndex)
 
             // Fast path: hi-res scroll data → process directly on transport thread.
@@ -761,20 +717,16 @@ final class DeviceManager {
                 return
             }
 
-            // Regular path for non-scroll notifications (buttons, ratchet switch, etc.)
-            if let mouse = mouseMap[key] {
-                Task { @MainActor in
-                    mouse.handleNotification(featureIndex: featureIndex, functionId: functionId, params: params)
-                }
-            } else if let keyboard = keyboardMap[key] {
-                Task { @MainActor in
-                    keyboard.handleNotification(featureIndex: featureIndex, functionId: functionId, params: params)
+            // Regular path for non-scroll notifications (buttons, ratchet switch, mic-mute).
+            if let device = deviceMap[key] {
+                Task { @MainActor [device] in
+                    device.handleNotification(featureIndex: featureIndex, functionId: functionId, params: params)
                 }
             }
         }
 
         let totalDevices = self.devices.count
-        debugLog("[DeviceManager] Notification routing configured: \(mouseMap.count) mouse(s), \(keyboardMap.count) keyboard(s)")
+        debugLog("[DeviceManager] Notification routing configured: \(deviceMap.count) route(s)")
         logger.info("[DeviceManager] Notification routing configured for \(totalDevices) device(s)")
     }
 
@@ -794,9 +746,7 @@ final class DeviceManager {
         var wantMonitor = false
 
         for device in devices {
-            if let keyboard = device as? KeyboardDevice,
-               keyboard.micMuteEnabled, !keyboard.micMuteDivertActive
-            {
+            if device.micMuteWantsFallback {
                 wantMonitor = true
                 break
             }
@@ -853,21 +803,12 @@ final class DeviceManager {
 
                 guard let self else { break }
                 for device in self.devices {
-                    if let mouse = device as? MouseDevice {
-                        await mouse.refreshBattery()
-                        BatteryNotifier.checkAndNotify(
-                            deviceName: mouse.name,
-                            level: mouse.batteryLevel,
-                            isCharging: mouse.batteryCharging
-                        )
-                    } else if let keyboard = device as? KeyboardDevice {
-                        await keyboard.refreshBattery()
-                        BatteryNotifier.checkAndNotify(
-                            deviceName: keyboard.name,
-                            level: keyboard.batteryLevel,
-                            isCharging: keyboard.batteryCharging
-                        )
-                    }
+                    await device.refreshBattery()
+                    BatteryNotifier.checkAndNotify(
+                        deviceName: device.name,
+                        level: device.battery.level,
+                        isCharging: device.battery.charging
+                    )
                 }
                 logger.debug("[DeviceManager] Battery refresh complete")
             }

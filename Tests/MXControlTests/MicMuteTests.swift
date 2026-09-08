@@ -169,8 +169,23 @@ struct MicMuteEngineTests {
     }
 }
 
-@Suite("KeyboardDevice Mic Mute")
-struct KeyboardMicMuteTests {
+@Suite("Descriptor Mic Mute")
+struct DescriptorMicMuteTests {
+
+    private var spec: MicMuteSpec {
+        DeviceDescriptors.mxKeysMini.micMute!
+    }
+
+    private func f9Control(
+        controlId: UInt16 = 0x011C,
+        position: UInt8 = 9,
+        flags: SpecialKeysFeature.ControlFlags = [.fnKey, .hotKey, .fnToggle, .reprogrammable, .divertable, .analyticsKey]
+    ) -> SpecialKeysFeature.ControlInfo {
+        SpecialKeysFeature.ControlInfo(
+            controlId: controlId, taskId: 0x00F1,
+            flags: flags, position: position, group: 0, groupMask: 0
+        )
+    }
 
     /// Minimal HIDTransport stub. The tests below never perform I/O —
     /// they only drive `handleNotification` and CID matching.
@@ -197,13 +212,21 @@ struct KeyboardMicMuteTests {
     }
 
     @MainActor
-    private func makeKeyboard() -> KeyboardDevice {
-        KeyboardDevice(deviceIndex: 0x01, transport: StubHIDTransport())
+    private func makeBehavior() -> (LogiDevice, MicMuteBehavior) {
+        let device = LogiDevice(
+            deviceIndex: 0x01,
+            transport: StubHIDTransport(),
+            descriptor: DeviceDescriptors.mxKeysMini
+        )
+        let behavior = MicMuteBehavior(device: device)
+        behavior.micCID = 0x00C9
+        device.specialKeysFeatureIndex = 0x05
+        return (device, behavior)
     }
 
     @Test @MainActor func micMuteCIDUnknownByDefault() {
         // Empty table → no match.
-        #expect(KeyboardDevice.micMuteCID(in: []) == nil)
+        #expect(MicMuteBehavior.matchCID(in: [], spec: spec) == nil)
     }
 
     @Test @MainActor func micMuteCIDMatchesF9DivertableControl() {
@@ -213,98 +236,113 @@ struct KeyboardMicMuteTests {
                 flags: [.fnKey, .fnToggle, .analyticsKey],
                 position: 1, group: 0, groupMask: 0
             ),
-            SpecialKeysFeature.ControlInfo(
-                controlId: 0x011C, taskId: 0x00F1,
-                flags: [.fnKey, .hotKey, .fnToggle, .reprogrammable, .divertable, .analyticsKey],
-                position: 9, group: 0, groupMask: 0
-            ),
+            f9Control(),
         ]
-        #expect(KeyboardDevice.micMuteCID(in: controls) == 0x011C)
+        #expect(MicMuteBehavior.matchCID(in: controls, spec: spec) == 0x011C)
     }
 
     @Test @MainActor func micMuteCIDRejectsNonDivertable() {
-        let controls = [
-            SpecialKeysFeature.ControlInfo(
-                controlId: 0x011C, taskId: 0x00F1,
-                flags: [.fnKey, .analyticsKey],  // not divertable
-                position: 9, group: 0, groupMask: 0
-            ),
-        ]
-        #expect(KeyboardDevice.micMuteCID(in: controls) == nil)
+        let controls = [f9Control(flags: [.fnKey, .analyticsKey])]
+        #expect(MicMuteBehavior.matchCID(in: controls, spec: spec) == nil)
     }
 
     @Test @MainActor func micMuteCIDRejectsWrongPosition() {
         // Same CID but unexpected position (firmware remap) → reject.
-        let controls = [
-            SpecialKeysFeature.ControlInfo(
-                controlId: 0x011C, taskId: 0x00F1,
-                flags: [.fnKey, .hotKey, .fnToggle, .reprogrammable, .divertable, .analyticsKey],
-                position: 5, group: 0, groupMask: 0
-            ),
-        ]
-        #expect(KeyboardDevice.micMuteCID(in: controls) == nil)
+        let controls = [f9Control(position: 5)]
+        #expect(MicMuteBehavior.matchCID(in: controls, spec: spec) == nil)
     }
 
     @Test @MainActor func micMuteCIDRejectsMissingFnFlag() {
         // Divertable CID at the right position but without the FN flag → reject.
-        let controls = [
-            SpecialKeysFeature.ControlInfo(
-                controlId: 0x011C, taskId: 0x00F1,
-                flags: [.hotKey, .reprogrammable, .divertable, .analyticsKey],
-                position: 9, group: 0, groupMask: 0
-            ),
-        ]
-        #expect(KeyboardDevice.micMuteCID(in: controls) == nil)
+        let controls = [f9Control(flags: [.hotKey, .reprogrammable, .divertable, .analyticsKey])]
+        #expect(MicMuteBehavior.matchCID(in: controls, spec: spec) == nil)
     }
 
     @Test @MainActor func divertedMicPressFiresOncePerPress() {
-        let keyboard = makeKeyboard()
-        keyboard.micMuteCID = 0x00C9
-        keyboard.specialKeysFeatureIndex = 0x05
+        let (device, behavior) = makeBehavior()
+        defer { _ = device } // keep device alive: behavior holds it unowned
+
 
         var fires = 0
-        keyboard.onMicMuteKeypress = { fires += 1 }
+        behavior.onMicMuteKeypress = { fires += 1 }
 
         // Press (edge) → fires
-        keyboard.handleNotification(featureIndex: 0x05, functionId: 0x00, params: [0x00, 0xC9, 0, 0])
+        behavior.handleNotification(featureIndex: 0x05, functionId: 0x00, params: [0x00, 0xC9, 0, 0])
         // Held (repeat, same state) → no additional fire
-        keyboard.handleNotification(featureIndex: 0x05, functionId: 0x00, params: [0x00, 0xC9, 0, 0])
+        behavior.handleNotification(featureIndex: 0x05, functionId: 0x00, params: [0x00, 0xC9, 0, 0])
         // Release
-        keyboard.handleNotification(featureIndex: 0x05, functionId: 0x00, params: [0, 0, 0, 0])
+        behavior.handleNotification(featureIndex: 0x05, functionId: 0x00, params: [0, 0, 0, 0])
         // Press again → fires
-        keyboard.handleNotification(featureIndex: 0x05, functionId: 0x00, params: [0x00, 0xC9, 0, 0])
+        behavior.handleNotification(featureIndex: 0x05, functionId: 0x00, params: [0x00, 0xC9, 0, 0])
 
         #expect(fires == 2)
     }
 
     @Test @MainActor func otherCIDsAndFeaturesIgnored() {
-        let keyboard = makeKeyboard()
-        keyboard.micMuteCID = 0x00C9
-        keyboard.specialKeysFeatureIndex = 0x05
+        let (device, behavior) = makeBehavior()
+        defer { _ = device } // keep device alive: behavior holds it unowned
+
 
         var fires = 0
-        keyboard.onMicMuteKeypress = { fires += 1 }
+        behavior.onMicMuteKeypress = { fires += 1 }
 
         // Different CID pressed
-        keyboard.handleNotification(featureIndex: 0x05, functionId: 0x00, params: [0x00, 0x50, 0, 0])
+        behavior.handleNotification(featureIndex: 0x05, functionId: 0x00, params: [0x00, 0x50, 0, 0])
         // Different feature index
-        keyboard.handleNotification(featureIndex: 0x06, functionId: 0x00, params: [0x00, 0xC9, 0, 0])
+        behavior.handleNotification(featureIndex: 0x06, functionId: 0x00, params: [0x00, 0xC9, 0, 0])
         // Different event (rawXY, not button event)
-        keyboard.handleNotification(featureIndex: 0x05, functionId: 0x01, params: [0x00, 0xC9, 0, 0])
+        behavior.handleNotification(featureIndex: 0x05, functionId: 0x01, params: [0x00, 0xC9, 0, 0])
 
         #expect(fires == 0)
     }
 
     @Test @MainActor func noCIDConfiguredIgnoresEverything() {
-        let keyboard = makeKeyboard()
-        keyboard.micMuteCID = nil
-        keyboard.specialKeysFeatureIndex = 0x05
+        let (device, behavior) = makeBehavior()
+        defer { _ = device } // keep device alive: behavior holds it unowned
+
+        behavior.micCID = nil
 
         var fires = 0
-        keyboard.onMicMuteKeypress = { fires += 1 }
+        behavior.onMicMuteKeypress = { fires += 1 }
 
-        keyboard.handleNotification(featureIndex: 0x05, functionId: 0x00, params: [0x00, 0xC9, 0, 0])
+        behavior.handleNotification(featureIndex: 0x05, functionId: 0x00, params: [0x00, 0xC9, 0, 0])
 
         #expect(fires == 0)
+    }
+}
+
+@Suite("DeviceDescriptors")
+struct DeviceDescriptorTests {
+
+    @Test func matchByPID() {
+        let found = DeviceDescriptors.match(pid: 0xB034, name: "MX Master 3S", kind: .mouse)
+        #expect(found.id == "mx-master-3s")
+    }
+
+    @Test func matchByName() {
+        // Receiver path: no device PID visible, match on HID++ name.
+        let found = DeviceDescriptors.match(pid: nil, name: "MX Keys Mini", kind: .keyboard)
+        #expect(found.id == "mx-keys-mini")
+    }
+
+    @Test func unknownFallsBackToGeneric() {
+        let found = DeviceDescriptors.match(pid: 0x1234, name: "Mystery Mouse", kind: .mouse)
+        #expect(found.id == "generic")
+        #expect(found.type == .mouse)
+        #expect(found.capabilities.map(\.id).contains(CapabilityID.battery))
+    }
+
+    @Test func master3SDeclaresBehaviors() {
+        let descriptor = DeviceDescriptors.mxMaster3S
+        #expect(descriptor.scroll != nil)
+        #expect(descriptor.thumbGesture?.thumbCID == 0x00C3)
+        #expect(descriptor.micMute == nil)
+    }
+
+    @Test func keysMiniDeclaresMicMute() {
+        let descriptor = DeviceDescriptors.mxKeysMini
+        #expect(descriptor.micMute?.cid == 0x011C)
+        #expect(descriptor.scroll == nil)
+        #expect(descriptor.thumbGesture == nil)
     }
 }

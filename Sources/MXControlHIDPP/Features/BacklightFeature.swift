@@ -150,6 +150,43 @@ public enum BacklightFeature {
         )
     }
 
+    // MARK: - Events
+
+    /// Live backlight update pushed by the device when the user adjusts the
+    /// backlight via hardware keys (`backlightInfoEvent`, event fn 0).
+    ///
+    /// Payload layout (16 bytes): [nb_levels, current_level, status, effect, ...].
+    /// Status values: 0=disabled by software, 1=critical battery,
+    /// 2=ALS automatic, 3=ALS saturated (off), 4=temporary manual,
+    /// 5=permanent manual. See OpenLogi `0x1982 backlight`.
+    public struct InfoUpdate: Sendable {
+        /// Total user-selectable levels.
+        public let levelCount: Int
+        /// Active level after the change.
+        public let level: Int
+        /// Raw status byte (see above).
+        public let status: UInt8
+        /// Raw effect byte.
+        public let effect: UInt8
+
+        /// Whether the status reports manual control (hardware or software).
+        public var isManual: Bool { status == 4 || status == 5 }
+        /// Whether the status reports the backlight disabled.
+        public var isDisabled: Bool { status == 0 || status == 1 }
+    }
+
+    /// Parse a `backlightInfoEvent` (event 0) notification payload.
+    /// Returns nil when the payload is too short to decode.
+    public static func parseInfoEvent(params: [UInt8]) -> InfoUpdate? {
+        guard params.count >= 4 else { return nil }
+        return InfoUpdate(
+            levelCount: Int(params[0]),
+            level: Int(params[1]),
+            status: params[2],
+            effect: params[3]
+        )
+    }
+
     // MARK: - Function 1 (0x10): SetBacklightConfig
 
     /// Set backlight configuration.

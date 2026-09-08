@@ -315,3 +315,38 @@ struct BacklightFeatureTests {
         #expect(config.mode == .manual)
     }
 }
+
+@Suite("BacklightFeature InfoChanged Event")
+struct BacklightInfoEventTests {
+
+    @Test func parsesManualUpdate() {
+        // nb_levels=8, level=5, status=temporary-manual(4), effect=static(0)
+        let update = BacklightFeature.parseInfoEvent(params: [0x08, 0x05, 0x04, 0x00] + [UInt8](repeating: 0, count: 12))
+
+        #expect(update?.levelCount == 8)
+        #expect(update?.level == 5)
+        #expect(update?.isManual == true)
+        #expect(update?.isDisabled == false)
+    }
+
+    @Test func parsesDisabledUpdate() {
+        let update = BacklightFeature.parseInfoEvent(params: [0x08, 0x00, 0x00, 0x00])
+
+        #expect(update?.level == 0)
+        #expect(update?.isManual == false)
+        #expect(update?.isDisabled == true)
+    }
+
+    @Test func alsStatusLeavesToggleAlone() {
+        // ALS automatic(2): neither manual nor disabled.
+        let update = BacklightFeature.parseInfoEvent(params: [0x08, 0x03, 0x02, 0x00])
+
+        #expect(update?.isManual == false)
+        #expect(update?.isDisabled == false)
+    }
+
+    @Test func shortPayloadReturnsNil() {
+        #expect(BacklightFeature.parseInfoEvent(params: [0x08, 0x05]) == nil)
+        #expect(BacklightFeature.parseInfoEvent(params: []) == nil)
+    }
+}

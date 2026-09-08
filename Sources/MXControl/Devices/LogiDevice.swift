@@ -53,6 +53,7 @@ class LogiDevice: Identifiable, @unchecked Sendable {
     var pointerSpeed: Int = 256
     var smartShiftMaxForce: Int = 100
     var backlightFid: UInt16?
+    var backlightFeatureIndex: UInt8?
     var backlightMode: BacklightFeature.BacklightMode = .automatic
     var backlightMaxLevel: Int = 8
     var backlightOptions: UInt8 = 0
@@ -201,6 +202,9 @@ class LogiDevice: Identifiable, @unchecked Sendable {
         }
         if descriptor.micMute != nil {
             attached.append(MicMuteBehavior(device: self))
+        }
+        if descriptor.capabilities.contains(where: { $0.id == .backlightEnabled }) {
+            attached.append(BacklightBehavior(device: self))
         }
         behaviors = attached
     }

@@ -18,10 +18,14 @@ public enum HiResScrollFeature {
     public struct WheelCapability: Sendable {
         /// Hi-res multiplier (e.g., 8 means 8x resolution vs. standard).
         public let multiplier: Int
-        /// Whether the device supports ratchet/free-spin mode switching.
-        public let hasRatchet: Bool
+        /// Whether the device has a physical switch for the ratchet mode.
+        public let hasSwitch: Bool
         /// Whether inversion is supported.
         public let hasInvert: Bool
+        /// Ratchets per full wheel rotation (0 when unreported).
+        public let ratchetsPerRotation: Int
+        /// Nominal wheel diameter in millimeters (0 when unreported).
+        public let wheelDiameter: Int
     }
 
     // MARK: - Wheel Mode
@@ -46,7 +50,9 @@ public enum HiResScrollFeature {
     ///
     /// Response:
     ///   param[0]: multiplier
-    ///   param[1]: capability flags (bit 2 = invert, bit 3 = ratchet switch)
+    ///   param[1]: capability flags (bit 3 = invert, bit 2 = switch)
+    ///   param[2]: ratchets per rotation (0 when unreported)
+    ///   param[3]: wheel diameter in mm (0 when unreported)
     public static func getWheelCapability(
         transport: HIDTransport,
         deviceIndex: UInt8,
@@ -65,8 +71,10 @@ public enum HiResScrollFeature {
 
         return WheelCapability(
             multiplier: multiplier,
-            hasRatchet: (flags & 0x08) != 0,
-            hasInvert: (flags & 0x04) != 0
+            hasSwitch: (flags & 0x04) != 0,
+            hasInvert: (flags & 0x08) != 0,
+            ratchetsPerRotation: params.count > 2 ? Int(params[2]) : 0,
+            wheelDiameter: params.count > 3 ? Int(params[3]) : 0
         )
     }
 

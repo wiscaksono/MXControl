@@ -37,9 +37,13 @@ public enum ChangeHostFeature {
             softwareId: 0x01
         )
 
+        let params = response.params
+        guard params.count >= 2 else {
+            throw HIDPPError.transportError("Truncated host info (\(params.count) bytes)")
+        }
         return HostInfo(
-            hostCount: Int(response.params[0]),
-            currentHost: Int(response.params[1])
+            hostCount: Int(params[0]),
+            currentHost: Int(params[1])
         )
     }
 

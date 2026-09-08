@@ -30,10 +30,10 @@ struct BatteryEnumTests {
     }
 
     @Test func batteryLevelRawValues() {
-        #expect(BatteryFeature.BatteryLevel.critical.rawValue == 0)
-        #expect(BatteryFeature.BatteryLevel.low.rawValue == 1)
-        #expect(BatteryFeature.BatteryLevel.good.rawValue == 2)
-        #expect(BatteryFeature.BatteryLevel.full.rawValue == 3)
+        #expect(BatteryFeature.BatteryLevel.critical.rawValue == 1)
+        #expect(BatteryFeature.BatteryLevel.low.rawValue == 2)
+        #expect(BatteryFeature.BatteryLevel.good.rawValue == 4)
+        #expect(BatteryFeature.BatteryLevel.full.rawValue == 8)
     }
 
     @Test func capabilitiesFlags() {
@@ -115,36 +115,28 @@ struct SmartShiftEnumTests {
 struct HostsInfoEnumTests {
 
     @Test func busTypeDescriptions() {
-        #expect(HostsInfoFeature.BusType.unknown.description == "Unknown")
-        #expect(HostsInfoFeature.BusType.bluetooth.description == "Bluetooth")
-        #expect(HostsInfoFeature.BusType.blePro.description == "Bolt")
+        #expect(HostsInfoFeature.BusType.undefined.description == "Unknown")
+        #expect(HostsInfoFeature.BusType.equad.description == "Receiver")
         #expect(HostsInfoFeature.BusType.usb.description == "USB")
-    }
-
-    @Test func osTypeDescriptions() {
-        #expect(HostsInfoFeature.OSType.unknown.description == "Unknown")
-        #expect(HostsInfoFeature.OSType.windows.description == "Windows")
-        #expect(HostsInfoFeature.OSType.winEmb.description == "Windows Embedded")
-        #expect(HostsInfoFeature.OSType.linux.description == "Linux")
-        #expect(HostsInfoFeature.OSType.chrome.description == "Chrome OS")
-        #expect(HostsInfoFeature.OSType.android.description == "Android")
-        #expect(HostsInfoFeature.OSType.macOS.description == "macOS")
-        #expect(HostsInfoFeature.OSType.iOS.description == "iOS")
+        #expect(HostsInfoFeature.BusType.bluetoothClassic.description == "Bluetooth")
+        #expect(HostsInfoFeature.BusType.ble.description == "Bluetooth LE")
+        #expect(HostsInfoFeature.BusType.blePro.description == "Bolt")
     }
 
     @Test func busTypeRawValues() {
-        #expect(HostsInfoFeature.BusType(rawValue: 0) == .unknown)
-        #expect(HostsInfoFeature.BusType(rawValue: 1) == .bluetooth)
-        #expect(HostsInfoFeature.BusType(rawValue: 2) == .blePro)
-        #expect(HostsInfoFeature.BusType(rawValue: 3) == .usb)
-        #expect(HostsInfoFeature.BusType(rawValue: 4) == nil)
+        #expect(HostsInfoFeature.BusType(rawValue: 0) == .undefined)
+        #expect(HostsInfoFeature.BusType(rawValue: 1) == .equad)
+        #expect(HostsInfoFeature.BusType(rawValue: 2) == .usb)
+        #expect(HostsInfoFeature.BusType(rawValue: 3) == .bluetoothClassic)
+        #expect(HostsInfoFeature.BusType(rawValue: 4) == .ble)
+        #expect(HostsInfoFeature.BusType(rawValue: 5) == .blePro)
+        #expect(HostsInfoFeature.BusType(rawValue: 6) == nil)
     }
 
-    @Test func osTypeRawValues() {
-        #expect(HostsInfoFeature.OSType(rawValue: 0) == .unknown)
-        #expect(HostsInfoFeature.OSType(rawValue: 6) == .macOS)
-        #expect(HostsInfoFeature.OSType(rawValue: 7) == .iOS)
-        #expect(HostsInfoFeature.OSType(rawValue: 8) == nil)
+    @Test func slotStatusRawValues() {
+        #expect(HostsInfoFeature.SlotStatus(rawValue: 0) == .empty)
+        #expect(HostsInfoFeature.SlotStatus(rawValue: 1) == .paired)
+        #expect(HostsInfoFeature.SlotStatus(rawValue: 2) == nil)
     }
 }
 

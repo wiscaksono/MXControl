@@ -1,11 +1,18 @@
 import Foundation
 
-/// HID++ 2.0 Hosts Info (0x1815) — information about paired hosts.
+/// HID++ 2.0 Hosts Info (0x1815) — multi-host slots and pairing status.
+///
+/// Wire format per OpenLogi `0x1815 hostsInfo` (Logitech HID++ 2.0):
 ///
 /// Functions:
-///   0: getHostCount()     -> number of hosts
-///   1: getHostInfo(idx)   -> host name, bus type, OS type
-///   2: getHostDescriptor() -> host name string (multi-chunk)
+///   0: getFeatureInfo()          -> caps, descriptor caps, slot count, current slot
+///   1: getHostInfo(host)         -> status, bus type, page/name lengths
+///   2: getHostDescriptor(h,p)    -> raw descriptor page (names live here;
+///                                   byte layout unspecified, so names fall
+///                                   back to "Slot N")
+///
+/// There is deliberately no OS-type field: the spec has none (an earlier
+/// revision of this file invented ones from the wrong bytes).
 public enum HostsInfoFeature {
 
     public static let featureId: UInt16 = 0x1815
@@ -13,68 +20,86 @@ public enum HostsInfoFeature {
     // MARK: - Bus Type
 
     public enum BusType: UInt8, Sendable, CustomStringConvertible {
-        case unknown = 0
-        case bluetooth = 1
-        case blePro = 2      // Bolt receiver
-        case usb = 3
+        case undefined = 0
+        case equad = 1
+        case usb = 2
+        case bluetoothClassic = 3
+        case ble = 4
+        case blePro = 5      // Logi Bolt
 
         public var description: String {
             switch self {
-            case .unknown: return "Unknown"
-            case .bluetooth: return "Bluetooth"
-            case .blePro: return "Bolt"
+            case .undefined: return "Unknown"
+            case .equad: return "Receiver"
             case .usb: return "USB"
+            case .bluetoothClassic: return "Bluetooth"
+            case .ble: return "Bluetooth LE"
+            case .blePro: return "Bolt"
             }
         }
     }
 
-    // MARK: - OS Type
+    // MARK: - Slot Status
 
-    public enum OSType: UInt8, Sendable, CustomStringConvertible {
-        case unknown = 0
-        case windows = 1
-        case winEmb = 2
-        case linux = 3
-        case chrome = 4
-        case android = 5
-        case macOS = 6
-        case iOS = 7
-
-        public var description: String {
-            switch self {
-            case .unknown: return "Unknown"
-            case .windows: return "Windows"
-            case .winEmb: return "Windows Embedded"
-            case .linux: return "Linux"
-            case .chrome: return "Chrome OS"
-            case .android: return "Android"
-            case .macOS: return "macOS"
-            case .iOS: return "iOS"
-            }
-        }
+    public enum SlotStatus: UInt8, Sendable {
+        case empty = 0
+        case paired = 1
     }
 
-    // MARK: - Host Entry
+    // MARK: - Feature Info
+
+    public struct FeatureInfo: Sendable {
+        /// GET_NAME bit allows reading friendly names (unused: layout unspecified).
+        public let canGetName: Bool
+        /// Total number of host slots.
+        public let hostCount: Int
+        /// Currently active slot.
+        public let currentHost: Int
+    }
+
+    // MARK: - Host Slot
+
+    public struct HostSlot: Sendable {
+        public let index: Int
+        public let paired: Bool
+        public let busType: BusType
+    }
+
+    // MARK: - Host Entry (UI model)
 
     public struct HostEntry: Sendable, Identifiable {
         public let index: Int
+        /// Display name. "Slot N" — descriptor-page name decoding is
+        /// unspecified, so friendly names are not read.
         public var name: String
         public let busType: BusType
-        public let osType: OSType
         /// Whether this host slot is paired.
         public let isPaired: Bool
 
         public var id: Int { index }
+
+        public init(index: Int, name: String, busType: BusType, isPaired: Bool) {
+            self.index = index
+            self.name = name
+            self.busType = busType
+            self.isPaired = isPaired
+        }
     }
 
-    // MARK: - Function 0: GetHostCount
+    // MARK: - Function 0: GetFeatureInfo
 
-    /// Get the number of host slots.
-    public static func getHostCount(
+    /// Get slot count, current slot, and capabilities.
+    ///
+    /// Response:
+    ///   param[0]: capabilities (bit 0 = GET_NAME)
+    ///   param[1]: descriptor capabilities
+    ///   param[2]: host slot count
+    ///   param[3]: current slot (0xFF = unknown, treated as slot 0)
+    public static func getFeatureInfo(
         transport: HIDTransport,
         deviceIndex: UInt8,
         featureIndex: UInt8
-    ) async throws -> Int {
+    ) async throws -> FeatureInfo {
         let response = try await transport.send(
             deviceIndex: deviceIndex,
             featureIndex: featureIndex,
@@ -82,123 +107,100 @@ public enum HostsInfoFeature {
             softwareId: 0x01
         )
 
-        return Int(response.params[0])
+        let params = response.params
+        guard params.count >= 4 else {
+            throw HIDPPError.transportError("Truncated hosts-info (\(params.count) bytes)")
+        }
+        let current = Int(params[3])
+        return FeatureInfo(
+            canGetName: (params[0] & 0x01) != 0,
+            hostCount: Int(params[2]),
+            currentHost: current == 0xFF ? 0 : current
+        )
     }
 
     // MARK: - Function 1: GetHostInfo
 
-    /// Get info about a specific host slot.
+    /// Get pairing status and bus type for one slot.
     ///
+    /// Request: `[host, 0x00, 0x00]`.
     /// Response:
-    ///   param[0]: host index echo
-    ///   param[1]: bus type
-    ///   param[2]: OS type detected
-    ///   param[3]: name length
-    ///   param[4]: name max length
-    ///   param[5]: flags (bit 0 = paired)
+    ///   param[0]: slot echo
+    ///   param[1]: status (0 = empty, 1 = paired)
+    ///   param[2]: bus type
+    ///   param[3]: descriptor page count
+    ///   param[4]: friendly-name length
+    ///   param[5]: friendly-name max length
     public static func getHostInfo(
         transport: HIDTransport,
         deviceIndex: UInt8,
         featureIndex: UInt8,
         hostIndex: Int
-    ) async throws -> (busType: BusType, osType: OSType, nameLength: Int, isPaired: Bool) {
+    ) async throws -> HostSlot {
         let response = try await transport.send(
             deviceIndex: deviceIndex,
             featureIndex: featureIndex,
             functionId: 0x01,
             softwareId: 0x01,
-            params: [UInt8(clamping: hostIndex)]
+            params: [UInt8(clamping: hostIndex), 0x00, 0x00]
         )
 
         let params = response.params
-        let bus = BusType(rawValue: params[1]) ?? .unknown
-        let os = OSType(rawValue: params[2]) ?? .unknown
-        let nameLen = Int(params[3])
-        let flags = params.count > 5 ? params[5] : 0
-        let paired = (flags & 0x01) != 0
-
-        return (busType: bus, osType: os, nameLength: nameLen, isPaired: paired)
-    }
-
-    // MARK: - Function 2: GetHostDescriptor (Name)
-
-    /// Get a chunk of the host name.
-    ///
-    /// Response: param[0] = host index, param[1] = offset, param[2...] = name bytes.
-    public static func getHostNameChunk(
-        transport: HIDTransport,
-        deviceIndex: UInt8,
-        featureIndex: UInt8,
-        hostIndex: Int,
-        offset: Int
-    ) async throws -> String {
-        let response = try await transport.send(
-            deviceIndex: deviceIndex,
-            featureIndex: featureIndex,
-            functionId: 0x02,
-            softwareId: 0x01,
-            params: [
-                UInt8(clamping: hostIndex),
-                UInt8(clamping: offset),
-            ]
+        guard params.count >= 6 else {
+            throw HIDPPError.transportError("Truncated host info (\(params.count) bytes)")
+        }
+        guard Int(params[0]) == hostIndex else {
+            throw HIDPPError.transportError("Host slot echo mismatch (want \(hostIndex), got \(params[0]))")
+        }
+        return HostSlot(
+            index: hostIndex,
+            paired: params[1] == SlotStatus.paired.rawValue,
+            busType: BusType(rawValue: params[2]) ?? .undefined
         )
-
-        // Name bytes start at param[2] (after index echo and offset echo)
-        let nameBytes = response.params.dropFirst(2).prefix(while: { $0 != 0 })
-        return String(bytes: nameBytes, encoding: .utf8) ?? ""
     }
 
     // MARK: - Convenience: Get All Hosts
 
-    /// Enumerate all host slots with names.
+    /// Maximum sane slot count. A corrupt count byte must not fan out into
+    /// hundreds of sequential requests and UI rows.
+    private static let maxSlots = 16
+
+    /// Enumerate all host slots. Names are "Slot N" — friendly-name decoding
+    /// from descriptor pages is unspecified, so it is not attempted.
     public static func enumerateHosts(
         transport: HIDTransport,
         deviceIndex: UInt8,
         featureIndex: UInt8
-    ) async throws -> [HostEntry] {
-        let count = try await getHostCount(
+    ) async throws -> (hosts: [HostEntry], currentHost: Int) {
+        let info = try await getFeatureInfo(
             transport: transport,
             deviceIndex: deviceIndex,
             featureIndex: featureIndex
         )
 
-        var hosts: [HostEntry] = []
+        let count = min(info.hostCount, maxSlots)
+        if count != info.hostCount {
+            debugLog("[HostsInfo] Clamping implausible slot count \(info.hostCount) to \(maxSlots)")
+        }
 
+        var hosts: [HostEntry] = []
         for i in 0..<count {
-            let info = try await getHostInfo(
+            let slot = try await getHostInfo(
                 transport: transport,
                 deviceIndex: deviceIndex,
                 featureIndex: featureIndex,
                 hostIndex: i
             )
-
-            // Read host name
-            var name = ""
-            if info.nameLength > 0 {
-                var offset = 0
-                while name.count < info.nameLength {
-                    let chunk = try await getHostNameChunk(
-                        transport: transport,
-                        deviceIndex: deviceIndex,
-                        featureIndex: featureIndex,
-                        hostIndex: i,
-                        offset: offset
-                    )
-                    if chunk.isEmpty { break }
-                    name += chunk
-                    offset = name.count
-                }
-            }
-
             hosts.append(HostEntry(
                 index: i,
-                name: name.isEmpty ? "Host \(i + 1)" : name,
-                busType: info.busType,
-                osType: info.osType,
-                isPaired: info.isPaired
+                name: "Slot \(i + 1)",
+                busType: slot.busType,
+                isPaired: slot.paired
             ))
         }
 
-        return hosts
+        // Clamp: a corrupt current value must not index out of range.
+        let current = hosts.isEmpty ? 0 : min(info.currentHost, hosts.count - 1)
+        return (hosts, current)
     }
 }

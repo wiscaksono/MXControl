@@ -16,13 +16,31 @@ enum CapabilityHandlers {
 
     // MARK: - State Creation
 
+    /// Whether a capability applies to this device. Most capabilities map
+    /// 1:1 to a feature ID; SmartShift accepts either variant (0x2111/0x2110)
+    /// and hosts accepts either info source (0x1815/0x1814).
+    static func isSupported(_ capability: DeviceCapability, on device: LogiDevice) -> Bool {
+        switch capability.id {
+        case .smartShiftWheelMode, .smartShiftActive:
+            return device.hasFeature(SmartShiftFeature.featureId)
+                || device.hasFeature(SmartShiftV1Feature.featureId)
+        case .smartShiftTorque:
+            // Torque needs v2 with tunable support; v1-only devices never show it.
+            return device.hasFeature(SmartShiftFeature.featureId)
+        case .hosts:
+            return device.hasFeature(HostsInfoFeature.featureId)
+                || device.hasFeature(ChangeHostFeature.featureId)
+        default:
+            guard let featureId = capability.featureId else { return true }
+            return device.hasFeature(featureId)
+        }
+    }
+
     /// Create default states for the declared capabilities. States for
     /// features the device does not report are skipped so no UI renders.
     static func createStates(for capabilities: [DeviceCapability], on device: LogiDevice) {
         for capability in capabilities {
-            if let featureId = capability.featureId, !device.hasFeature(featureId) {
-                continue
-            }
+            guard isSupported(capability, on: device) else { continue }
             switch capability.kind {
             case .toggle:
                 let def: Bool = switch capability.id {
@@ -149,11 +167,13 @@ enum CapabilityHandlers {
     }
 
     private static func loadBattery(on device: LogiDevice) async throws {
+        let idx = try await batteryIndex(on: device)
         let status = try await BatteryFeature.getStatus(
             transport: device.transport,
             deviceIndex: device.deviceIndex,
-            featureIndex: try await batteryIndex(on: device)
+            featureIndex: idx
         )
+        device.batteryFeatureIndex = idx
         device.battery.level = status.level
         device.battery.charging = status.chargingStatus.isCharging
         device.battery.statusText = status.chargingStatus.description
@@ -211,45 +231,125 @@ enum CapabilityHandlers {
         logger.info("[CapabilityHandlers] Pointer speed: \(speed)")
     }
 
-    private static func loadSmartShift(on device: LogiDevice) async throws {
-        let idx = try await device.featureIndexCache.resolve(
-            featureId: SmartShiftFeature.featureId,
+    /// Whether an auto-disengage value means SmartShift is effectively on.
+    /// 0 disables, 0xFF locks permanent ratchet (also off in effect).
+    private static func isSmartShiftActive(_ autoDisengage: Int) -> Bool {
+        autoDisengage != 0 && autoDisengage != 0xFF
+    }
+
+    /// Resolve the SmartShift variant the device reports, preferring v2.
+    /// Stores the active feature ID for commit routing.
+    private static func smartShiftFeatureId(on device: LogiDevice) async throws -> UInt16 {
+        if device.hasFeature(SmartShiftFeature.featureId) {
+            device.smartShiftFid = SmartShiftFeature.featureId
+            return SmartShiftFeature.featureId
+        }
+        if device.hasFeature(SmartShiftV1Feature.featureId) {
+            device.smartShiftFid = SmartShiftV1Feature.featureId
+            return SmartShiftV1Feature.featureId
+        }
+        throw HIDPPError.featureNotSupported(SmartShiftFeature.featureId)
+    }
+
+    /// Resolve the cached SmartShift index, re-resolving the variant when a
+    /// previous load never completed (fid nil).
+    private static func resolveSmartShiftIndex(on device: LogiDevice) async throws -> UInt8 {
+        let fid: UInt16
+        if let cached = device.smartShiftFid {
+            fid = cached
+        } else {
+            fid = try await smartShiftFeatureId(on: device)
+        }
+        return try await device.featureIndexCache.resolve(
+            featureId: fid,
             transport: device.transport,
             deviceIndex: device.deviceIndex
         )
-        let caps = try await SmartShiftFeature.getCapabilities(
-            transport: device.transport, deviceIndex: device.deviceIndex, featureIndex: idx
-        )
-        device.smartShiftMaxForce = caps.maxForce
-        device.ints[CapabilityID.smartShiftTorque]?.range = 1...caps.maxForce
+    }
 
-        let status = try await SmartShiftFeature.getStatus(
-            transport: device.transport, deviceIndex: device.deviceIndex, featureIndex: idx
+    private static func loadSmartShift(on device: LogiDevice) async throws {
+        let fid = try await smartShiftFeatureId(on: device)
+        let idx = try await device.featureIndexCache.resolve(
+            featureId: fid,
+            transport: device.transport,
+            deviceIndex: device.deviceIndex
         )
-        var mode = status.wheelMode
-        var active = status.autoDisengage > 0
-        var torque = status.torque
+
+        var mode: SmartShiftFeature.WheelMode = .ratchet
+        var active = true
+        var torque = 50
+
+        if fid == SmartShiftFeature.featureId {
+            let caps = try await SmartShiftFeature.getCapabilities(
+                transport: device.transport, deviceIndex: device.deviceIndex, featureIndex: idx
+            )
+            device.smartShiftMaxForce = caps.maxForce
+            if caps.hasTunableTorque, caps.maxForce > 0 {
+                device.ints[CapabilityID.smartShiftTorque]?.range = 1...caps.maxForce
+            } else {
+                // No tunable torque: drop the slider state so no UI renders.
+                device.ints.removeValue(forKey: CapabilityID.smartShiftTorque)
+            }
+
+            let status = try await SmartShiftFeature.getStatus(
+                transport: device.transport, deviceIndex: device.deviceIndex, featureIndex: idx
+            )
+            mode = status.wheelMode
+            active = isSmartShiftActive(status.autoDisengage)
+            // Zero means unknown (truncated response), never a real torque.
+            if status.torque > 0 { torque = status.torque }
+        } else {
+            // v1 has no tunable torque: drop the slider state so no UI renders.
+            device.ints.removeValue(forKey: CapabilityID.smartShiftTorque)
+            let status = try await SmartShiftV1Feature.getStatus(
+                transport: device.transport, deviceIndex: device.deviceIndex, featureIndex: idx
+            )
+            mode = status.wheelMode
+            active = isSmartShiftActive(status.autoDisengage)
+        }
 
         let savedMode: Int? = SettingsStore.savedValue(CapabilityID.smartShiftWheelMode, deviceName: device.name)
         let savedActive: Bool? = SettingsStore.savedValue(CapabilityID.smartShiftActive, deviceName: device.name)
         let savedTorque: Int? = SettingsStore.savedValue(CapabilityID.smartShiftTorque, deviceName: device.name)
-        if savedMode != nil || savedActive != nil || savedTorque != nil {
+        // v1 has no torque setting: a stale torque pref must not trigger a write.
+        // Same for v2 without tunable torque (slider state was dropped above).
+        let needsWrite = savedMode != nil || savedActive != nil
+            || (fid == SmartShiftFeature.featureId && device.ints[CapabilityID.smartShiftTorque] != nil && savedTorque != nil)
+        if needsWrite {
             if let m = savedMode, let wm = SmartShiftFeature.WheelMode(rawValue: UInt8(m)) { mode = wm }
             if let a = savedActive { active = a }
-            if let t = savedTorque { torque = t }
-            try await SmartShiftFeature.setStatus(
-                transport: device.transport, deviceIndex: device.deviceIndex, featureIndex: idx,
-                wheelMode: mode,
-                autoDisengage: active ? (savedTorque ?? 50) : 0,
-                torque: savedTorque
-            )
+            if fid == SmartShiftFeature.featureId, let t = savedTorque { torque = t }
+            if fid == SmartShiftFeature.featureId {
+                let echoed = try await SmartShiftFeature.setStatus(
+                    transport: device.transport, deviceIndex: device.deviceIndex, featureIndex: idx,
+                    wheelMode: mode,
+                    autoDisengage: active ? (savedTorque ?? 50) : 0,
+                    torque: savedTorque
+                )
+                mode = echoed.wheelMode
+                active = isSmartShiftActive(echoed.autoDisengage)
+                if echoed.torque > 0 { torque = echoed.torque }
+            } else {
+                let echoed = try await SmartShiftV1Feature.setStatus(
+                    transport: device.transport, deviceIndex: device.deviceIndex, featureIndex: idx,
+                    wheelMode: mode,
+                    autoDisengage: active ? 50 : 0,
+                    autoDisengageDefault: nil
+                )
+                mode = echoed.wheelMode
+                active = isSmartShiftActive(echoed.autoDisengage)
+            }
         }
 
         device.segmented[CapabilityID.smartShiftWheelMode]?.selected = Int(mode.rawValue)
         device.toggles[CapabilityID.smartShiftActive]?.value = active
         device.ints[CapabilityID.smartShiftTorque]?.value = torque
         ScrollInterceptor.shared.wheelMode = mode == .freeSpin ? .freeSpin : .ratchet
-        logger.info("[CapabilityHandlers] SmartShift: mode=\(mode) active=\(active) torque=\(torque)")
+        if fid == SmartShiftFeature.featureId {
+            logger.info("[CapabilityHandlers] SmartShift: mode=\(mode) active=\(active) torque=\(torque) (0x2111)")
+        } else {
+            logger.info("[CapabilityHandlers] SmartShift: mode=\(mode) active=\(active) (0x2110)")
+        }
     }
 
     private static func loadThumbWheel(on device: LogiDevice) async throws {
@@ -261,25 +361,23 @@ enum CapabilityHandlers {
         let info = try await ThumbWheelFeature.getInfo(
             transport: device.transport, deviceIndex: device.deviceIndex, featureIndex: idx
         )
-        guard info.supportsInversion else {
-            // Device cannot invert: drop the toggle so no UI section renders.
-            device.toggles.removeValue(forKey: CapabilityID.thumbWheelInverted)
-            logger.info("[CapabilityHandlers] Thumb wheel inversion not supported — dropping toggle")
-            return
-        }
+        debugLog("[CapabilityHandlers] Thumbwheel info: native=\(info.nativeResolution) diverted=\(info.divertedResolution)")
         let config = try await ThumbWheelFeature.getConfig(
             transport: device.transport, deviceIndex: device.deviceIndex, featureIndex: idx
         )
+        // Preserve the device's reporting mode: we only manage inversion,
+        // never divert the thumbwheel (no listener consumes diverted events).
+        device.thumbDiverted = config.diverted
         var inverted = config.inverted
         if let saved: Bool = SettingsStore.savedValue(CapabilityID.thumbWheelInverted, deviceName: device.name) {
             inverted = saved
             try await ThumbWheelFeature.setConfig(
                 transport: device.transport, deviceIndex: device.deviceIndex, featureIndex: idx,
-                inverted: inverted, diverted: false
+                inverted: inverted, diverted: config.diverted
             )
         }
         device.toggles[CapabilityID.thumbWheelInverted]?.value = inverted
-        logger.info("[CapabilityHandlers] Thumb wheel inverted=\(inverted)")
+        logger.info("[CapabilityHandlers] Thumb wheel inverted=\(inverted) diverted=\(config.diverted)")
     }
 
     private static func loadBacklight(on device: LogiDevice) async throws {
@@ -340,7 +438,7 @@ enum CapabilityHandlers {
                 featureIndex: idx, featureId: fid
             )
             device.fnFid = fid
-            device.fnGKeyState = state.gKeyState
+            device.fnDefaultState = state.defaultState
 
             // UI sense: standard F-keys primary. Protocol sense is inverted.
             var wantStandard = !state.fnInverted
@@ -353,7 +451,7 @@ enum CapabilityHandlers {
                 try await FnInversionFeature.setState(
                     transport: device.transport, deviceIndex: device.deviceIndex,
                     featureIndex: idx, featureId: fid,
-                    fnInverted: !wantStandard, gKeyState: state.gKeyState
+                    fnInverted: !wantStandard, defaultState: state.defaultState
                 )
             }
             device.toggles[CapabilityID.fnStandardKeys]?.value = wantStandard
@@ -365,6 +463,30 @@ enum CapabilityHandlers {
     }
 
     private static func loadHosts(on device: LogiDevice) async throws {
+        // Prefer 0x1815 (slot status + bus per slot); fall back to 0x1814
+        // (count + current only) when 0x1815 is missing OR its enumeration
+        // fails — either way the section must not take down the load.
+        if device.hasFeature(HostsInfoFeature.featureId) {
+            do {
+                let hostsIdx = try await device.featureIndexCache.resolve(
+                    featureId: HostsInfoFeature.featureId,
+                    transport: device.transport,
+                    deviceIndex: device.deviceIndex
+                )
+                let (hosts, current) = try await HostsInfoFeature.enumerateHosts(
+                    transport: device.transport, deviceIndex: device.deviceIndex, featureIndex: hostsIdx
+                )
+                device.hosts.hosts = hosts
+                device.hosts.currentHostIndex = current
+                device.hosts.hostCount = hosts.count
+                logger.info("[CapabilityHandlers] Hosts: \(hosts.count) slot(s), current \(current + 1)")
+                return
+            } catch {
+                debugLog("[CapabilityHandlers] 0x1815 enumerate failed (\(error)), trying 0x1814 count")
+            }
+        }
+
+        guard device.hasFeature(ChangeHostFeature.featureId) else { return }
         let idx = try await device.featureIndexCache.resolve(
             featureId: ChangeHostFeature.featureId,
             transport: device.transport,
@@ -375,17 +497,11 @@ enum CapabilityHandlers {
         )
         device.hosts.hostCount = hostInfo.hostCount
         device.hosts.currentHostIndex = hostInfo.currentHost
-        if device.hasFeature(HostsInfoFeature.featureId) {
-            let hostsIdx = try await device.featureIndexCache.resolve(
-                featureId: HostsInfoFeature.featureId,
-                transport: device.transport,
-                deviceIndex: device.deviceIndex
-            )
-            device.hosts.hosts = try await HostsInfoFeature.enumerateHosts(
-                transport: device.transport, deviceIndex: device.deviceIndex, featureIndex: hostsIdx
-            )
+        // Count-only fallback: the active slot is connected by definition.
+        device.hosts.hosts = (0..<hostInfo.hostCount).map {
+            HostsInfoFeature.HostEntry(index: $0, name: "Slot \($0 + 1)", busType: .undefined, isPaired: $0 == hostInfo.currentHost)
         }
-        logger.info("[CapabilityHandlers] Host: \(hostInfo.currentHost + 1)/\(hostInfo.hostCount)")
+        logger.info("[CapabilityHandlers] Host: \(hostInfo.currentHost + 1)/\(hostInfo.hostCount) (count only)")
     }
 
     // MARK: - Commit (UI → device + persist)
@@ -417,43 +533,74 @@ enum CapabilityHandlers {
 
             case .smartShiftWheelMode:
                 guard let mode = SmartShiftFeature.WheelMode(rawValue: UInt8(device.segmented[id]?.selected ?? 2)) else { return }
-                let idx = try await device.featureIndexCache.resolve(
-                    featureId: SmartShiftFeature.featureId,
-                    transport: device.transport, deviceIndex: device.deviceIndex
-                )
-                try await SmartShiftFeature.setStatus(
-                    transport: device.transport, deviceIndex: device.deviceIndex,
-                    featureIndex: idx, wheelMode: mode, autoDisengage: nil, torque: nil
-                )
-                ScrollInterceptor.shared.wheelMode = mode == .freeSpin ? .freeSpin : .ratchet
-                SettingsStore.saveValue(Int(mode.rawValue), id, deviceName: device.name)
-                logger.info("[CapabilityHandlers] SmartShift wheel mode: \(mode)")
+                let idx = try await resolveSmartShiftIndex(on: device)
+                let echoedAD: Int
+                let echoedMode: SmartShiftFeature.WheelMode
+                if device.smartShiftFid == SmartShiftV1Feature.featureId {
+                    let status = try await SmartShiftV1Feature.setStatus(
+                        transport: device.transport, deviceIndex: device.deviceIndex,
+                        featureIndex: idx, wheelMode: mode, autoDisengage: nil, autoDisengageDefault: nil
+                    )
+                    echoedMode = status.wheelMode
+                    echoedAD = status.autoDisengage
+                } else {
+                    let status = try await SmartShiftFeature.setStatus(
+                        transport: device.transport, deviceIndex: device.deviceIndex,
+                        featureIndex: idx, wheelMode: mode, autoDisengage: nil, torque: nil
+                    )
+                    echoedMode = status.wheelMode
+                    echoedAD = status.autoDisengage
+                }
+                device.segmented[id]?.selected = Int(echoedMode.rawValue)
+                device.toggles[CapabilityID.smartShiftActive]?.value = isSmartShiftActive(echoedAD)
+                ScrollInterceptor.shared.wheelMode = echoedMode == .freeSpin ? .freeSpin : .ratchet
+                SettingsStore.saveValue(Int(echoedMode.rawValue), id, deviceName: device.name)
+                logger.info("[CapabilityHandlers] SmartShift wheel mode: \(echoedMode)")
 
             case .smartShiftActive:
                 let enabled = device.toggles[id]?.value ?? true
-                let idx = try await device.featureIndexCache.resolve(
-                    featureId: SmartShiftFeature.featureId,
-                    transport: device.transport, deviceIndex: device.deviceIndex
-                )
-                let torque = device.ints[CapabilityID.smartShiftTorque]?.value
-                try await SmartShiftFeature.setStatus(
-                    transport: device.transport, deviceIndex: device.deviceIndex,
-                    featureIndex: idx, wheelMode: nil,
-                    autoDisengage: enabled ? (torque ?? 50) : 0, torque: nil
-                )
-                SettingsStore.saveValue(enabled, id, deviceName: device.name)
+                let idx = try await resolveSmartShiftIndex(on: device)
+                // 0xFF = permanent ratchet = SmartShift effectively off.
+                let echoedActive: Bool
+                if device.smartShiftFid == SmartShiftV1Feature.featureId {
+                    let status = try await SmartShiftV1Feature.setStatus(
+                        transport: device.transport, deviceIndex: device.deviceIndex,
+                        featureIndex: idx, wheelMode: nil,
+                        autoDisengage: enabled ? 50 : 0, autoDisengageDefault: nil
+                    )
+                    device.segmented[CapabilityID.smartShiftWheelMode]?.selected = Int(status.wheelMode.rawValue)
+                    echoedActive = isSmartShiftActive(status.autoDisengage)
+                } else {
+                    let torque = device.ints[CapabilityID.smartShiftTorque]?.value
+                    let status = try await SmartShiftFeature.setStatus(
+                        transport: device.transport, deviceIndex: device.deviceIndex,
+                        featureIndex: idx, wheelMode: nil,
+                        autoDisengage: enabled ? (torque ?? 50) : 0, torque: nil
+                    )
+                    device.segmented[CapabilityID.smartShiftWheelMode]?.selected = Int(status.wheelMode.rawValue)
+                    if status.torque > 0 {
+                        device.ints[CapabilityID.smartShiftTorque]?.value = status.torque
+                    }
+                    echoedActive = isSmartShiftActive(status.autoDisengage)
+                }
+                device.toggles[id]?.value = echoedActive
+                ScrollInterceptor.shared.wheelMode = (device.segmented[CapabilityID.smartShiftWheelMode]?.selected == 1) ? .freeSpin : .ratchet
+                SettingsStore.saveValue(echoedActive, id, deviceName: device.name)
 
             case .smartShiftTorque:
+                // v1 and untunable-v2 have no torque slider state; the commit
+                // guard in LogiDevice already no-ops, this is defense in depth.
+                guard device.smartShiftFid != SmartShiftV1Feature.featureId else { return }
                 let torque = device.ints[id]?.value ?? 50
-                let idx = try await device.featureIndexCache.resolve(
-                    featureId: SmartShiftFeature.featureId,
-                    transport: device.transport, deviceIndex: device.deviceIndex
-                )
-                try await SmartShiftFeature.setStatus(
+                let idx = try await resolveSmartShiftIndex(on: device)
+                let status = try await SmartShiftFeature.setStatus(
                     transport: device.transport, deviceIndex: device.deviceIndex,
                     featureIndex: idx, wheelMode: nil, autoDisengage: nil, torque: torque
                 )
-                SettingsStore.saveValue(torque, id, deviceName: device.name)
+                if status.torque > 0 {
+                    device.ints[id]?.value = status.torque
+                }
+                SettingsStore.saveValue(device.ints[id]?.value ?? torque, id, deviceName: device.name)
 
             case .hiResEnabled, .hiResInverted:
                 guard let idx = device.hiResScrollFeatureIndex else { return }
@@ -476,7 +623,7 @@ enum CapabilityHandlers {
                 )
                 try await ThumbWheelFeature.setConfig(
                     transport: device.transport, deviceIndex: device.deviceIndex,
-                    featureIndex: idx, inverted: inverted, diverted: false
+                    featureIndex: idx, inverted: inverted, diverted: device.thumbDiverted
                 )
                 SettingsStore.saveValue(inverted, id, deviceName: device.name)
 
@@ -528,7 +675,7 @@ enum CapabilityHandlers {
                 try await FnInversionFeature.setState(
                     transport: device.transport, deviceIndex: device.deviceIndex,
                     featureIndex: idx, featureId: fid,
-                    fnInverted: !wantStandard, gKeyState: device.fnGKeyState
+                    fnInverted: !wantStandard, defaultState: device.fnDefaultState
                 )
                 SettingsStore.saveValue(wantStandard, id, deviceName: device.name)
 

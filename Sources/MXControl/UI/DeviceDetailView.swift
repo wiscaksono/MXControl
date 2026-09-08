@@ -191,7 +191,7 @@ struct DeviceDetailView: View {
 
                     Spacer()
 
-                    Text("\(host.busType.description) \(host.osType.description)")
+                    Text(host.isPaired ? host.busType.description : "Empty")
                         .font(.system(size: 10))
                         .foregroundStyle(.tertiary)
                 }

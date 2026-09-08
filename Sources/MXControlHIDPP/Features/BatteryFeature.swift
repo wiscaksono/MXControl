@@ -44,12 +44,12 @@ public enum BatteryFeature {
 
     // MARK: - Battery Level
 
-    /// Battery level categories from the status flags.
+    /// Battery level categories per OpenLogi `0x1004 unifiedBattery`.
     public enum BatteryLevel: UInt8, Sendable, CustomStringConvertible {
-        case critical = 0   // < 10%
-        case low = 1        // 10-30%
-        case good = 2       // 30-80%
-        case full = 3       // > 80%
+        case critical = 1
+        case low = 2
+        case good = 4
+        case full = 8
 
         public var description: String {
             switch self {
@@ -64,14 +64,12 @@ public enum BatteryFeature {
     // MARK: - Status Result
 
     public struct Status: Sendable {
-        /// Battery percentage (0-100). May be 0 if SoC not supported.
+        /// Battery percentage (0-100). Zero when the device does not report it.
         public let level: Int
         /// Coarse battery level category.
         public let batteryLevel: BatteryLevel
         /// Current charging status.
         public let chargingStatus: ChargingStatus
-        /// Whether the battery supports state of charge (percentage).
-        public let hasSoC: Bool
     }
 
     // MARK: - Capabilities
@@ -114,8 +112,8 @@ public enum BatteryFeature {
     /// Get current battery status (level, charging state).
     ///
     /// Response format:
-    ///   param[0]: state of charge (0-100%)
-    ///   param[1]: battery level (0=critical, 1=low, 2=good, 3=full)
+    ///   param[0]: state of charge (0-100%, zero when unsupported)
+    ///   param[1]: battery level (1=critical, 2=low, 4=good, 8=full)
     ///   param[2]: charging status (0=discharging, 1=charging, etc.)
     ///   param[3]: external power status
     public static func getStatus(
@@ -130,15 +128,23 @@ public enum BatteryFeature {
             softwareId: 0x01
         )
 
-        let soc = Int(response.params[0])
-        let level = BatteryLevel(rawValue: response.params[1]) ?? .good
-        let charging = ChargingStatus(rawValue: response.params[2]) ?? .discharging
+        return try parseInfo(params: response.params)
+    }
+
+    /// Parse a battery info payload. Shared by getStatus and the live
+    /// InfoUpdate event (event fn 0), which carries the identical layout.
+    public static func parseInfo(params: [UInt8]) throws -> Status {
+        guard params.count >= 3 else {
+            throw HIDPPError.transportError("Truncated battery info (\(params.count) bytes)")
+        }
+        let soc = Int(params[0])
+        let level = BatteryLevel(rawValue: params[1]) ?? .good
+        let charging = ChargingStatus(rawValue: params[2]) ?? .discharging
 
         return Status(
             level: soc,
             batteryLevel: level,
-            chargingStatus: charging,
-            hasSoC: soc > 0  // If device reports 0, SoC may not be supported
+            chargingStatus: charging
         )
     }
 }

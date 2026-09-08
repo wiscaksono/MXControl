@@ -764,6 +764,11 @@ public final class USBTransport: HIDTransport, @unchecked Sendable {
                     let waiter = waiters.remove(at: idx)
                     let errorCode = HIDPPErrorCode(rawValue: response.errorCode ?? 0) ?? .unknown
                     debugLog("[USBTransport] ERROR MATCH -> waiter uid=\(waiter.targetDeviceUID ?? "any") dev=\(waiter.deviceIndex) feat=\(String(format: "0x%02X", waiter.featureIndex)) errFeat=\(String(format: "0x%02X", errorFeatureIndex)) errCode=\(errorCode.name)")
+                    // Raw packet triage (release-visible): pins down whether the
+                    // error belongs to this waiter or is misattributed.
+                    // Error packets carry no user data (feature/function/code only).
+                    let rawHex = packet.prefix(8).map { String(format: "%02X", $0) }.joined(separator: " ")
+                    logger.warning("[USBTransport] HID++ error: raw=[\(rawHex, privacy: .public)] req idx=0x\(String(format: "%02X", waiter.featureIndex), privacy: .public) fn=\(waiter.functionId, privacy: .public) code=\(errorCode.name, privacy: .public)")
                     waiter.continuation.resume(throwing: HIDPPError.hidppError(
                         code: errorCode,
                         featureIndex: errorFeatureIndex

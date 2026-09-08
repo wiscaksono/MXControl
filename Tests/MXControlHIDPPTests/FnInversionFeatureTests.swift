@@ -17,7 +17,7 @@ struct FnInversionFeatureTests {
         )
 
         #expect(state.fnInverted == true)
-        #expect(state.gKeyState == 0) // always 0 for classic
+        #expect(state.defaultState == 0) // always 0 for classic
     }
 
     @Test func getStateClassicNotInverted() async throws {
@@ -37,7 +37,7 @@ struct FnInversionFeatureTests {
 
     @Test func getStateEnhancedInverted() async throws {
         let mock = MockHIDTransport()
-        // Response: [hostByte(skip), fnState=0x01, gKeyState=0x42]
+        // Response: [hostByte(skip), fnState=0x01, defaultState=0x42]
         mock.respond(featureIndex: 0x08, functionId: 0x00,
                      params: [0xFF, 0x01, 0x42] + [UInt8](repeating: 0, count: 13))
 
@@ -47,7 +47,7 @@ struct FnInversionFeatureTests {
         )
 
         #expect(state.fnInverted == true)
-        #expect(state.gKeyState == 0x42)
+        #expect(state.defaultState == 0x42)
 
         // Verify the request sent 0xFF for current host
         let sent = mock.sentRequests[0]
@@ -65,7 +65,7 @@ struct FnInversionFeatureTests {
         )
 
         #expect(state.fnInverted == false)
-        #expect(state.gKeyState == 0x00)
+        #expect(state.defaultState == 0x00)
     }
 
     // MARK: - setState Classic
@@ -107,13 +107,13 @@ struct FnInversionFeatureTests {
         try await FnInversionFeature.setState(
             transport: mock, deviceIndex: 0x01, featureIndex: 0x08,
             featureId: FnInversionFeature.featureIdV3,
-            fnInverted: true, gKeyState: 0x42
+            fnInverted: true, defaultState: 0x42
         )
 
         let sent = mock.sentRequests[0]
         #expect(sent.params[0] == 0xFF) // current host
         #expect(sent.params[1] == 0x01) // fnInverted = true
-        #expect(sent.params[2] == 0x42) // gKeyState preserved
+        #expect(sent.params[2] == 0x42) // defaultState preserved
     }
 
     @Test func setStateEnhancedNotInverted() async throws {
@@ -123,7 +123,7 @@ struct FnInversionFeatureTests {
         try await FnInversionFeature.setState(
             transport: mock, deviceIndex: 0x01, featureIndex: 0x08,
             featureId: FnInversionFeature.featureIdV3,
-            fnInverted: false, gKeyState: 0x00
+            fnInverted: false, defaultState: 0x00
         )
 
         let sent = mock.sentRequests[0]
@@ -136,7 +136,7 @@ struct FnInversionFeatureTests {
 
     @Test func getStateEnhancedShortParams2Bytes() async throws {
         let mock = MockHIDTransport()
-        // Only 2 bytes: hostByte + fnState — gKeyState missing
+        // Only 2 bytes: hostByte + fnState — defaultState missing
         // params.count < 3 → guard triggers, returns FnState(false, 0)
         mock.respondShort(featureIndex: 0x08, functionId: 0x00,
                           params: [0xFF, 0x01])
@@ -147,7 +147,7 @@ struct FnInversionFeatureTests {
         )
 
         #expect(state.fnInverted == false)  // guard fallback
-        #expect(state.gKeyState == 0)       // guard fallback
+        #expect(state.defaultState == 0)       // guard fallback
     }
 
     @Test func getStateEnhancedShortParams1Byte() async throws {
@@ -162,7 +162,7 @@ struct FnInversionFeatureTests {
         )
 
         #expect(state.fnInverted == false)  // guard fallback
-        #expect(state.gKeyState == 0)       // guard fallback
+        #expect(state.defaultState == 0)       // guard fallback
     }
 
     @Test func getStateEnhancedEmptyParams() async throws {
@@ -175,6 +175,6 @@ struct FnInversionFeatureTests {
         )
 
         #expect(state.fnInverted == false)
-        #expect(state.gKeyState == 0)
+        #expect(state.defaultState == 0)
     }
 }

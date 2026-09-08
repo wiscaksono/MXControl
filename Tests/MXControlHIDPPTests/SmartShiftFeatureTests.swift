@@ -40,9 +40,9 @@ struct SmartShiftFeatureTests {
 
     @Test func getStatusRatchet() async throws {
         let mock = MockHIDTransport()
-        // mode=2(ratchet), autoDisengage=30, autoDisDefault=25, torque=60
+        // mode=2(ratchet), autoDisengage=30, torque=60
         mock.respond(featureIndex: 0x06, functionId: 0x01,
-                     params: [0x02, 30, 25, 60] + [UInt8](repeating: 0, count: 12))
+                     params: [0x02, 30, 60] + [UInt8](repeating: 0, count: 13))
 
         let status = try await SmartShiftFeature.getStatus(
             transport: mock, deviceIndex: 0x01, featureIndex: 0x06
@@ -50,14 +50,13 @@ struct SmartShiftFeatureTests {
 
         #expect(status.wheelMode == .ratchet)
         #expect(status.autoDisengage == 30)
-        #expect(status.autoDisengageDefault == 25)
         #expect(status.torque == 60)
     }
 
     @Test func getStatusFreeSpin() async throws {
         let mock = MockHIDTransport()
         mock.respond(featureIndex: 0x06, functionId: 0x01,
-                     params: [0x01, 0, 0, 40] + [UInt8](repeating: 0, count: 12))
+                     params: [0x01, 0, 40] + [UInt8](repeating: 0, count: 13))
 
         let status = try await SmartShiftFeature.getStatus(
             transport: mock, deviceIndex: 0x01, featureIndex: 0x06
@@ -65,13 +64,14 @@ struct SmartShiftFeatureTests {
 
         #expect(status.wheelMode == .freeSpin)
         #expect(status.autoDisengage == 0)
+        #expect(status.torque == 40)
     }
 
     @Test func getStatusUnknownModeFallback() async throws {
         let mock = MockHIDTransport()
         // Unknown mode value 0x05 -> fallback to .ratchet
         mock.respond(featureIndex: 0x06, functionId: 0x01,
-                     params: [0x05, 30, 25, 60] + [UInt8](repeating: 0, count: 12))
+                     params: [0x05, 30, 60] + [UInt8](repeating: 0, count: 13))
 
         let status = try await SmartShiftFeature.getStatus(
             transport: mock, deviceIndex: 0x01, featureIndex: 0x06
@@ -94,15 +94,15 @@ struct SmartShiftFeatureTests {
         let sent = mock.sentRequests[0]
         #expect(sent.params[0] == 0x01) // freeSpin
         #expect(sent.params[1] == 30)   // autoDisengage
-        #expect(sent.params[2] == 0xFF) // autoDisDefault = no change
-        #expect(sent.params[3] == 50)   // torque
+        #expect(sent.params[2] == 50)   // torque (0 = no change per spec)
+        #expect(sent.params.count == 3)
     }
 
     @Test func setStatusNoChange() async throws {
         let mock = MockHIDTransport()
         mock.respond(featureIndex: 0x06, functionId: 0x02, params: [UInt8](repeating: 0, count: 16))
 
-        // All nil = no change
+        // All nil = no change (3 zero bytes per spec)
         try await SmartShiftFeature.setStatus(
             transport: mock, deviceIndex: 0x01, featureIndex: 0x06,
             wheelMode: nil, autoDisengage: nil, torque: nil
@@ -110,8 +110,9 @@ struct SmartShiftFeatureTests {
 
         let sent = mock.sentRequests[0]
         #expect(sent.params[0] == 0x00) // wheelMode nil -> 0 (no change)
-        #expect(sent.params[1] == 0xFF) // autoDisengage nil -> 0xFF (no change)
-        #expect(sent.params[3] == 0x00) // torque nil -> 0 (no change)
+        #expect(sent.params[1] == 0x00) // autoDisengage nil -> 0 (no change)
+        #expect(sent.params[2] == 0x00) // torque nil -> 0 (no change)
+        #expect(sent.params.count == 3)
     }
 
     // MARK: - Short params fallback branches
@@ -146,7 +147,7 @@ struct SmartShiftFeatureTests {
 
     @Test func getStatusShortParams2Bytes() async throws {
         let mock = MockHIDTransport()
-        // Only 2 bytes: mode + autoDisengage — autoDisDefault and torque missing
+        // Only 2 bytes: mode + autoDisengage — torque missing
         mock.respondShort(featureIndex: 0x06, functionId: 0x01, params: [0x02, 30])
 
         let status = try await SmartShiftFeature.getStatus(
@@ -155,21 +156,7 @@ struct SmartShiftFeatureTests {
 
         #expect(status.wheelMode == .ratchet)
         #expect(status.autoDisengage == 30)
-        #expect(status.autoDisengageDefault == 0) // fallback
-        #expect(status.torque == 50) // fallback default
-    }
-
-    @Test func getStatusShortParams3Bytes() async throws {
-        let mock = MockHIDTransport()
-        // 3 bytes: mode + autoDisengage + autoDisDefault — torque missing
-        mock.respondShort(featureIndex: 0x06, functionId: 0x01, params: [0x01, 0, 25])
-
-        let status = try await SmartShiftFeature.getStatus(
-            transport: mock, deviceIndex: 0x01, featureIndex: 0x06
-        )
-
-        #expect(status.autoDisengageDefault == 25)
-        #expect(status.torque == 50) // fallback default
+        #expect(status.torque == 0) // missing byte: unknown, not a default
     }
 
     @Test func setStatusOnlyWheelMode() async throws {
@@ -183,7 +170,8 @@ struct SmartShiftFeatureTests {
 
         let sent = mock.sentRequests[0]
         #expect(sent.params[0] == 0x02) // ratchet
-        #expect(sent.params[1] == 0xFF) // no change
-        #expect(sent.params[3] == 0x00) // no change
+        #expect(sent.params[1] == 0x00) // no change
+        #expect(sent.params[2] == 0x00) // no change
+        #expect(sent.params.count == 3)
     }
 }

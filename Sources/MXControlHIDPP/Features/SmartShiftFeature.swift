@@ -1,14 +1,16 @@
 import Foundation
 
-/// HID++ 2.0 SmartShift with Tunable Torque (0x2111) — scroll wheel mode control.
+/// HID++ 2.0 SmartShift Enhanced (0x2111) — scroll wheel mode control.
 ///
-/// SmartShift allows the scroll wheel to auto-switch between ratchet (notched)
-/// and free-spin modes based on scroll speed. v2 adds adjustable torque.
+/// Wire format per OpenLogi `0x2111 smartShiftEnhanced` (Logitech HID++ 2.0):
+/// getStatus (fn 1) returns exactly 3 bytes `[mode, autoDisengage, torque]`.
+/// setStatus (fn 2) sends 3 bytes `[mode, autoDisengage, torque]` where
+/// absent fields are encoded as 0 ("do not change").
 ///
 /// Functions:
-///   0: getCapabilities() -> has tunable torque, auto disengage default, max force
-///   1: getStatus()       -> current mode, sensitivity, torque, auto disengage
-///   2: setStatus()       -> set mode, sensitivity, torque, auto disengage
+///   0: getCapabilities() -> tunable torque flag, defaults, max force
+///   1: getStatus()       -> current mode, auto-disengage, torque
+///   2: setStatus()       -> set mode, auto-disengage, torque
 public enum SmartShiftFeature {
 
     public static let featureId: UInt16 = 0x2111
@@ -44,10 +46,8 @@ public enum SmartShiftFeature {
     // MARK: - Status
 
     public struct Status: Sendable {
-        /// Whether SmartShift auto-switching is active.
+        /// Auto-disengage threshold (0 = off/no-change sentinel on write).
         public let autoDisengage: Int
-        /// Default auto-disengage threshold (0 = SmartShift off).
-        public let autoDisengageDefault: Int
         /// Current scroll force / torque (1-100).
         public let torque: Int
         /// Current wheel mode.
@@ -76,6 +76,9 @@ public enum SmartShiftFeature {
         )
 
         let params = response.params
+        guard params.count >= 2 else {
+            throw HIDPPError.transportError("Truncated SmartShift capabilities (\(params.count) bytes)")
+        }
         return Capabilities(
             hasTunableTorque: (params[0] & 0x01) != 0,
             autoDisengageDefault: Int(params[1]),
@@ -88,11 +91,10 @@ public enum SmartShiftFeature {
 
     /// Get current SmartShift status.
     ///
-    /// Response format:
+    /// Response format (exactly 3 bytes):
     ///   param[0]: wheel mode (1=freespin, 2=ratchet)
-    ///   param[1]: auto-disengage value (0=off, 1-255=threshold)
-    ///   param[2]: auto-disengage default
-    ///   param[3]: torque / scroll force
+    ///   param[1]: auto-disengage threshold
+    ///   param[2]: current tunable torque
     public static func getStatus(
         transport: HIDTransport,
         deviceIndex: UInt8,
@@ -105,13 +107,20 @@ public enum SmartShiftFeature {
             softwareId: 0x01
         )
 
-        let params = response.params
-        let mode = WheelMode(rawValue: params[0]) ?? .ratchet
+        return try parseStatus(params: response.params)
+    }
 
+    /// Parse a 3-byte SmartShift status payload (get and set echo share it).
+    /// Unknown mode bytes fall back to ratchet (established behavior for
+    /// forward-compatibility with future modes).
+    static func parseStatus(params: [UInt8]) throws -> Status {
+        guard params.count >= 2 else {
+            throw HIDPPError.transportError("Truncated SmartShift status (\(params.count) bytes)")
+        }
+        let mode = WheelMode(rawValue: params[0]) ?? .ratchet
         return Status(
             autoDisengage: Int(params[1]),
-            autoDisengageDefault: params.count > 2 ? Int(params[2]) : 0,
-            torque: params.count > 3 ? Int(params[3]) : 50,
+            torque: params.count > 2 ? Int(params[2]) : 0,
             wheelMode: mode
         )
     }
@@ -122,14 +131,19 @@ public enum SmartShiftFeature {
     ///
     /// - Parameters:
     ///   - wheelMode: Scroll mode (freeSpin or ratchet). Pass nil to keep current.
-    ///   - autoDisengage: Auto-disengage threshold (0=off). Pass nil to keep current.
+    ///   - autoDisengage: Auto-disengage threshold. Pass nil to keep current.
+    ///     Note: 0 historically disables SmartShift; the spec reserves 0 as
+    ///     "do not change" and 0xFF as permanent ratchet.
     ///   - torque: Scroll force (1-100). Pass nil to keep current.
     ///
-    /// Param format:
+    /// Param format (exactly 3 bytes, absent fields encoded as 0):
     ///   param[0]: wheel mode (0=no change, 1=freespin, 2=ratchet)
-    ///   param[1]: auto-disengage (0xFF = no change)
-    ///   param[2]: auto-disengage default (0xFF = no change)
-    ///   param[3]: torque (0 = no change)
+    ///   param[1]: auto-disengage (0=no change)
+    ///   param[2]: torque (0=no change)
+    ///
+    /// - Returns: The device-echoed resulting status. Callers update UI
+    ///   state from the echo so a silently-ignored write cannot desync the UI.
+    @discardableResult
     public static func setStatus(
         transport: HIDTransport,
         deviceIndex: UInt8,
@@ -137,17 +151,18 @@ public enum SmartShiftFeature {
         wheelMode: WheelMode? = nil,
         autoDisengage: Int? = nil,
         torque: Int? = nil
-    ) async throws {
+    ) async throws -> Status {
         let modeVal = wheelMode?.rawValue ?? 0
-        let adVal = autoDisengage.map { UInt8(clamping: $0) } ?? 0xFF
+        let adVal = autoDisengage.map { UInt8(clamping: $0) } ?? 0
         let torqueVal = torque.map { UInt8(clamping: $0) } ?? 0
 
-        let _ = try await transport.send(
+        let response = try await transport.send(
             deviceIndex: deviceIndex,
             featureIndex: featureIndex,
             functionId: 0x02,
             softwareId: 0x01,
-            params: [modeVal, adVal, 0xFF, torqueVal]
+            params: [modeVal, adVal, torqueVal]
         )
+        return try parseStatus(params: response.params)
     }
 }

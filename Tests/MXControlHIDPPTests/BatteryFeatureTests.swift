@@ -34,9 +34,9 @@ struct BatteryFeatureTests {
 
     @Test func getStatusCharging() async throws {
         let mock = MockHIDTransport()
-        // SoC=75, level=good(2), charging(1)
+        // SoC=75, level=good(4), charging(1)
         mock.respond(featureIndex: 0x04, functionId: 0x01,
-                     params: [75, 0x02, 0x01] + [UInt8](repeating: 0, count: 13))
+                     params: [75, 0x04, 0x01] + [UInt8](repeating: 0, count: 13))
 
         let status = try await BatteryFeature.getStatus(
             transport: mock, deviceIndex: 0x01, featureIndex: 0x04
@@ -45,14 +45,13 @@ struct BatteryFeatureTests {
         #expect(status.level == 75)
         #expect(status.batteryLevel == .good)
         #expect(status.chargingStatus == .charging)
-        #expect(status.hasSoC == true)
     }
 
     @Test func getStatusDischarging() async throws {
         let mock = MockHIDTransport()
-        // SoC=100, level=full(3), discharging(0)
+        // SoC=100, level=full(8), discharging(0)
         mock.respond(featureIndex: 0x04, functionId: 0x01,
-                     params: [100, 0x03, 0x00] + [UInt8](repeating: 0, count: 13))
+                     params: [100, 0x08, 0x00] + [UInt8](repeating: 0, count: 13))
 
         let status = try await BatteryFeature.getStatus(
             transport: mock, deviceIndex: 0x01, featureIndex: 0x04
@@ -61,14 +60,13 @@ struct BatteryFeatureTests {
         #expect(status.level == 100)
         #expect(status.batteryLevel == .full)
         #expect(status.chargingStatus == .discharging)
-        #expect(status.hasSoC == true)
     }
 
     @Test func getStatusZeroSoC() async throws {
         let mock = MockHIDTransport()
-        // SoC=0 -> hasSoC = false
+        // SoC=0, level=critical(1), discharging(0)
         mock.respond(featureIndex: 0x04, functionId: 0x01,
-                     params: [0, 0x00, 0x00] + [UInt8](repeating: 0, count: 13))
+                     params: [0, 0x01, 0x00] + [UInt8](repeating: 0, count: 13))
 
         let status = try await BatteryFeature.getStatus(
             transport: mock, deviceIndex: 0x01, featureIndex: 0x04
@@ -76,7 +74,6 @@ struct BatteryFeatureTests {
 
         #expect(status.level == 0)
         #expect(status.batteryLevel == .critical)
-        #expect(status.hasSoC == false)
     }
 
     @Test func getStatusUnknownEnumFallback() async throws {
@@ -95,18 +92,24 @@ struct BatteryFeatureTests {
 
     // MARK: - SoC boundary
 
-    @Test func getStatusSoC1Boundary() async throws {
+    @Test func getStatusLow() async throws {
         let mock = MockHIDTransport()
-        // SoC=1 -> hasSoC = true (1 > 0)
+        // SoC=15, level=low(2), discharging(0)
         mock.respond(featureIndex: 0x04, functionId: 0x01,
-                     params: [1, 0x00, 0x00] + [UInt8](repeating: 0, count: 13))
+                     params: [15, 0x02, 0x00] + [UInt8](repeating: 0, count: 13))
 
         let status = try await BatteryFeature.getStatus(
             transport: mock, deviceIndex: 0x01, featureIndex: 0x04
         )
 
-        #expect(status.level == 1)
-        #expect(status.hasSoC == true) // 1 > 0 → true
-        #expect(status.batteryLevel == .critical) // rawValue 0
+        #expect(status.level == 15)
+        #expect(status.batteryLevel == .low)
+        #expect(status.chargingStatus == .discharging)
+    }
+
+    @Test func parseInfoTruncatedThrows() async throws {
+        await #expect(throws: (any Error).self) {
+            try BatteryFeature.parseInfo(params: [50, 0x04])
+        }
     }
 }

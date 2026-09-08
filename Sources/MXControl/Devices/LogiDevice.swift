@@ -52,6 +52,8 @@ class LogiDevice: Identifiable, @unchecked Sendable {
     var dpiStep: Int = 50
     var pointerSpeed: Int = 256
     var smartShiftMaxForce: Int = 100
+    /// Active SmartShift variant (0x2111 preferred, 0x2110 fallback).
+    var smartShiftFid: UInt16?
     var backlightFid: UInt16?
     var backlightFeatureIndex: UInt8?
     var backlightMode: BacklightFeature.BacklightMode = .automatic
@@ -61,9 +63,14 @@ class LogiDevice: Identifiable, @unchecked Sendable {
     var backlightDhi: UInt16 = 0
     var backlightDpow: UInt16 = 0
     var fnFid: UInt16?
-    var fnGKeyState: UInt8 = 0
+    var fnDefaultState: UInt8 = 0
     var hiResScrollFeatureIndex: UInt8?
     var hiResMultiplier: Int = 8
+    /// Resolved battery feature index for live InfoUpdate routing.
+    var batteryFeatureIndex: UInt8?
+    /// Thumbwheel reporting mode read at load. Commits preserve it — we only
+    /// manage inversion, never divert (no listener consumes diverted events).
+    var thumbDiverted: Bool = false
     var specialKeysFeatureIndex: UInt8?
     var gestureEngine: GestureEngine?
     /// In-flight HID++ target toggle. Cancelled on rapid re-toggle so the
@@ -221,9 +228,7 @@ class LogiDevice: Identifiable, @unchecked Sendable {
         // loader runs once.
         var loadedGroups = Set<String>()
         for capability in descriptor.capabilities {
-            if let featureId = capability.featureId, !hasFeature(featureId) {
-                continue
-            }
+            guard CapabilityHandlers.isSupported(capability, on: self) else { continue }
             let group = Self.loaderGroup(for: capability.id)
             guard !loadedGroups.contains(group) else { continue }
             loadedGroups.insert(group)
@@ -262,6 +267,16 @@ class LogiDevice: Identifiable, @unchecked Sendable {
 
     /// Handle an unsolicited HID++ notification from the device.
     func handleNotification(featureIndex: UInt8, functionId: UInt8, params: [UInt8]) {
+        // Battery live updates (event fn 0, same payload as getStatus).
+        // Silent on parse failure: notifications must never take down the load.
+        if let batteryIdx = batteryFeatureIndex, featureIndex == batteryIdx, functionId == 0x00,
+           let status = try? BatteryFeature.parseInfo(params: params) {
+            battery.level = status.level
+            battery.charging = status.chargingStatus.isCharging
+            battery.statusText = status.chargingStatus.description
+            debugLog("[LogiDevice] Battery event: \(status.level)% \(status.chargingStatus)")
+            return
+        }
         for behavior in behaviors {
             behavior.handleNotification(featureIndex: featureIndex, functionId: functionId, params: params)
         }

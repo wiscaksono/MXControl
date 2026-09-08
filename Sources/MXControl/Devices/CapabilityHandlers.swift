@@ -65,6 +65,9 @@ enum CapabilityHandlers {
                         .init(title: "Free Spin", rawValue: Int(SmartShiftFeature.WheelMode.freeSpin.rawValue)),
                     ]
                 )
+
+            case .info:
+                break // Battery/hosts use dedicated BatteryState/HostListState.
             }
         }
     }
@@ -120,7 +123,8 @@ enum CapabilityHandlers {
             if let v: Int = store.savedValue(id, deviceName: device.name) {
                 device.ints[id]?.value = v
             } else if let legacy: Double = store.savedValue("gesture.click_time", deviceName: device.name) {
-                device.ints[id]?.value = Int(legacy * 1000.0)
+                // Clamp: legacy seconds had no upper bound, the slider is 100...400ms.
+                device.ints[id]?.value = min(400, max(100, Int((legacy * 1000.0).rounded())))
             }
         case CapabilityID.gestureDragThreshold:
             if let v: Int = store.savedValue(id, deviceName: device.name) { device.ints[id]?.value = v }
@@ -176,13 +180,13 @@ enum CapabilityHandlers {
         let state = device.ints[CapabilityID.dpi]
         state?.range = device.dpiMin...device.dpiMax
         state?.step = device.dpiStep
-        var dpi = info.currentDPI
         if let saved: Int = SettingsStore.savedValue(CapabilityID.dpi, deviceName: device.name) {
-            dpi = saved
-            try await writeDPI(dpi, on: device, index: idx)
+            // writeDPI snaps to step and stores the snapped value in state.
+            try await writeDPI(saved, on: device, index: idx)
+        } else {
+            state?.value = info.currentDPI
         }
-        state?.value = dpi
-        logger.info("[CapabilityHandlers] DPI: \(dpi) (range \(device.dpiMin)-\(device.dpiMax))")
+        logger.info("[CapabilityHandlers] DPI: \(state?.value ?? info.currentDPI) (range \(device.dpiMin)-\(device.dpiMax))")
     }
 
     private static func loadPointerSpeed(on device: LogiDevice) async throws {

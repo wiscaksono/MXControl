@@ -35,6 +35,8 @@ struct DeviceCapability: Sendable {
         case intSlider
         case doubleSlider
         case segmented
+        /// Display-only rows (battery, hosts) with dedicated states.
+        case info
     }
 
     let id: String
@@ -120,9 +122,15 @@ struct DeviceDescriptor: Sendable {
     let micMute: MicMuteSpec?
 
     /// Match a discovered device to this descriptor.
+    /// PID matches are exact; name matches require a full token so
+    /// "MX Master 2S" never matches an "MX Master 3S" descriptor.
     func matches(pid: Int?, name: String) -> Bool {
         if let pid, pids.contains(pid) { return true }
-        let lower = name.lowercased()
-        return nameMatches.contains { lower.contains($0.lowercased()) }
+        let tokens = name.lowercased().split(separator: " ").map(String.init)
+        return nameMatches.contains { match in
+            let matchTokens = match.lowercased().split(separator: " ").map(String.init)
+            guard matchTokens.count <= tokens.count else { return false }
+            return tokens.starts(with: matchTokens)
+        }
     }
 }

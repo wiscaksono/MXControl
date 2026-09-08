@@ -192,15 +192,14 @@ extension DeviceDetailView {
 
     // MARK: - Standard Function Keys
 
-    /// The stored value uses UI sense (standard F-keys primary).
+    /// The stored value uses UI sense (standard F-keys primary), so the
+    /// binding is direct — no negation (a previous revision negated twice
+    /// and displayed/stored the opposite of the device state).
     var fnKeysSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             ToggleRow(
                 label: "Standard Function Keys",
-                isOn: Binding(
-                    get: { !(device.toggles[CapabilityID.fnStandardKeys]?.value ?? true) },
-                    set: { device.toggles[CapabilityID.fnStandardKeys]?.value = !$0 }
-                ),
+                isOn: toggleBinding(CapabilityID.fnStandardKeys),
                 subtitle: "Use F1-F12 as standard keys, hold Fn for media"
             ) { _ in
                 commit(CapabilityID.fnStandardKeys)

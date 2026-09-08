@@ -1,4 +1,3 @@
-import MXControlHIDPP
 import Foundation
 import MXControlHIDPP
 import os

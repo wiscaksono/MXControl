@@ -82,6 +82,8 @@ struct DeviceDetailView: View {
                 return device.segmented[capability.id] != nil
             case .intSlider, .doubleSlider:
                 return false
+            case .info:
+                return false
             }
         }
     }
@@ -93,11 +95,15 @@ struct DeviceDetailView: View {
             case .toggle:
                 return device.toggles[capability.id] != nil
             case .intSlider:
+                // Thumb speed renders inside the thumb-wheel section, not here.
+                if capability.id == CapabilityID.smoothScrollThumbSpeed { return false }
                 return device.ints[capability.id] != nil
             case .doubleSlider:
                 return device.doubles[capability.id] != nil
             case .segmented:
                 return device.segmented[capability.id] != nil
+            case .info:
+                return false
             }
         }
     }

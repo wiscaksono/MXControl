@@ -24,7 +24,8 @@ final class MockMicMuteBackend: MicMuteBackend, @unchecked Sendable {
 
     func getMute(_ device: AudioDeviceID) -> Bool? {
         guard devices[device]?.hasMute == true else { return nil }
-        return mutedState[device]
+        // Match hardware: an unmuted device reads false, never nil.
+        return mutedState[device] ?? false
     }
 
     func setMute(_ device: AudioDeviceID, muted: Bool) -> Bool {

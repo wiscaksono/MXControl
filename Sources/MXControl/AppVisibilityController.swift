@@ -59,7 +59,7 @@ final class AppVisibilityController: NSObject, NSApplicationDelegate {
         let resetDone = DispatchGroup()
         resetDone.enter()
         Task.detached {
-            await AppRuntime.shared.deviceManager.resetScrollTargetForAllMice()
+            await AppRuntime.shared.deviceManager.resetScrollTargetForAllDevices()
             resetDone.leave()
         }
         let deadline = Date(timeIntervalSinceNow: 2.0)

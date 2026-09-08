@@ -2,6 +2,20 @@
 
 All notable changes to MXControl. Format follows Keep a Changelog.
 
+## [0.3.0] - 2026-09-08
+
+### Added
+- SmartShift section on BLE (original 0x2110 variant the mouse speaks wirelessly).
+- Easy-Switch host list with per-slot bus and pairing status.
+- Thumb-wheel inversion toggle (was hidden by a misread capability byte).
+- Live battery updates pushed by the device (no more waiting for the 5-minute poll).
+- Mic-mute overlay slides in from off-screen right, out to the right; no border on the docked edge.
+
+### Fixed
+- Thumbwheel, SmartShift v2, hosts-info, battery-level, and hi-res capability wire formats aligned with the HID++ reference.
+- Fn-inversion state byte correctly labeled (wire behavior unchanged).
+- F9 fallback is strictly opt-in for CoreBluetooth-only keyboards.
+
 ## [0.2.0] - 2026-09-08
 
 ### Added

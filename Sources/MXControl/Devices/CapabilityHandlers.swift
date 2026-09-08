@@ -293,6 +293,7 @@ enum CapabilityHandlers {
                 featureIndex: idx, featureId: fid
             )
             device.backlightFid = fid
+            device.backlightFeatureIndex = idx
             device.backlightOptions = config.options
             device.backlightDho = config.dho
             device.backlightDhi = config.dhi

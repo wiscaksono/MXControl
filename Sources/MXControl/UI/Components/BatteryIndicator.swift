@@ -29,7 +29,8 @@ struct BatteryIndicator: View {
     var body: some View {
         HStack(spacing: 3) {
             Image(systemName: batteryIcon)
-                .symbolRenderingMode(.multicolor)
+                .symbolRenderingMode(isCharging ? .monochrome : .multicolor)
+                .foregroundStyle(isCharging ? .green : .primary)
                 .font(.system(size: 12))
 
             Text("\(clampedLevel)%")

@@ -5,7 +5,7 @@ import SwiftUI
 // MARK: - Device Row View
 
 struct DeviceRowView: View {
-    let device: LogiDevice
+    @Bindable var device: LogiDevice
     var transportType: TransportType?
     var onTap: () -> Void
 

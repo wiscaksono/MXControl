@@ -525,6 +525,13 @@ final class DeviceManager {
                     if let idx = self.bleDevices.firstIndex(where: { $0.peripheralId == peripheralId }) {
                         self.bleDevices[idx] = updatedInfo
                         debugLog("[DeviceManager] CB: battery update for \(updatedInfo.name): \(updatedInfo.batteryLevel.map(String.init) ?? "?")%")
+                        if let level = updatedInfo.batteryLevel {
+                            BatteryNotifier.checkAndNotify(
+                                deviceName: updatedInfo.name,
+                                level: level,
+                                isCharging: false
+                            )
+                        }
                     }
                 }
             }
@@ -754,7 +761,7 @@ final class DeviceManager {
 
         if !wantMonitor {
             for ble in bleDevices where ble.deviceType == .keyboard {
-                let pref = SettingsStore.loadKeyboardSettings(deviceName: ble.name).micMuteEnabled
+                let pref: Bool? = SettingsStore.savedValue(CapabilityID.micMuteEnabled, deviceName: ble.name)
                 if pref == true {
                     wantMonitor = true
                     break

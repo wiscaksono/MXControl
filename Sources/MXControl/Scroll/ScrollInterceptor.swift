@@ -36,6 +36,8 @@ final class ScrollInterceptor: @unchecked Sendable {
     let smoother = ScrollSmoother()
 
     /// Whether smooth scrolling is enabled. When false, events pass through unmodified.
+    /// Setting true while a previous start failed (e.g. permission denied)
+    /// retries the start, so granting Accessibility later recovers automatically.
     private var _isEnabled = false
     var isEnabled: Bool {
         get { flagLock.withLock { _isEnabled } }
@@ -46,6 +48,14 @@ final class ScrollInterceptor: @unchecked Sendable {
             } else if !newValue && _isRunning {
                 stop()
             }
+        }
+    }
+
+    /// Retry a pending start (e.g. after the user grants Accessibility).
+    /// No-op unless enabled but not running.
+    func retryIfNeeded() {
+        if isEnabled && !isRunning {
+            start()
         }
     }
 

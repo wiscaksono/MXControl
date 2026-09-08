@@ -44,9 +44,10 @@ final class AppVisibilityController: NSObject, NSApplicationDelegate {
 
     func applicationDidBecomeActive(_ notification: Notification) {
         restoreMenuBarIconIfNeeded()
-        // Retry a pending F9 tap start: the user may have granted Accessibility
-        // after an earlier failed start while the enabled flag stayed on.
+        // Retry pending event-tap starts: the user may have granted
+        // Accessibility after an earlier failed start while enabled stayed on.
         F9KeyMonitor.shared.retryIfNeeded()
+        ScrollInterceptor.shared.retryIfNeeded()
     }
 
     func applicationWillTerminate(_ notification: Notification) {

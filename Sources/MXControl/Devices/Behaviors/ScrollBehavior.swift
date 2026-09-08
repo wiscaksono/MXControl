@@ -45,8 +45,25 @@ final class ScrollBehavior: DeviceBehavior {
                 deviceIndex: device.deviceIndex,
                 featureIndex: idx
             )
-            device.toggles[CapabilityID.hiResEnabled]?.value = mode.hiRes
-            device.toggles[CapabilityID.hiResInverted]?.value = mode.inverted
+            // Saved prefs win over hardware so reconnects restore settings.
+            var hiRes = mode.hiRes
+            var inverted = mode.inverted
+            let savedHiRes: Bool? = SettingsStore.savedValue(CapabilityID.hiResEnabled, deviceName: device.name)
+            let savedInverted: Bool? = SettingsStore.savedValue(CapabilityID.hiResInverted, deviceName: device.name)
+            if savedHiRes != nil || savedInverted != nil {
+                hiRes = savedHiRes ?? hiRes
+                inverted = savedInverted ?? inverted
+                try await HiResScrollFeature.setWheelMode(
+                    transport: device.transport,
+                    deviceIndex: device.deviceIndex,
+                    featureIndex: idx,
+                    target: false,
+                    hiRes: hiRes,
+                    inverted: inverted
+                )
+            }
+            device.toggles[CapabilityID.hiResEnabled]?.value = hiRes
+            device.toggles[CapabilityID.hiResInverted]?.value = inverted
 
             syncServices()
 
@@ -55,7 +72,7 @@ final class ScrollBehavior: DeviceBehavior {
                 await setTarget(true)
             }
 
-            logger.info("[ScrollBehavior] HiRes: enabled=\(mode.hiRes) inverted=\(mode.inverted) multiplier=\(self.device.hiResMultiplier)")
+            logger.info("[ScrollBehavior] HiRes: enabled=\(hiRes) inverted=\(inverted) multiplier=\(self.device.hiResMultiplier)")
         } catch {
             device.loadErrors.append("HiResScroll: \(error.localizedDescription)")
             debugLog("[ScrollBehavior] Load failed: \(error)")

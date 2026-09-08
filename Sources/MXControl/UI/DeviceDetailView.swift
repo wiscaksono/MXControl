@@ -25,12 +25,6 @@ struct DeviceDetailView: View {
                     separator
                 }
 
-                // Feature load error / connection warning
-                if let error = device.featureLoadError {
-                    featureWarningBanner(error)
-                    separator
-                }
-
                 // Main capabilities in descriptor order
                 ForEach(mainCapabilities, id: \.id) { capability in
                     capabilitySection(capability)
@@ -157,10 +151,6 @@ struct DeviceDetailView: View {
             Spacer()
 
             BatteryIndicator(level: device.battery.level, isCharging: device.battery.charging)
-
-            Text(device.battery.statusText)
-                .font(.system(size: 11))
-                .foregroundStyle(.tertiary)
         }
     }
 
@@ -174,11 +164,6 @@ struct DeviceDetailView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 20)
-    }
-
-    private func featureWarningBanner(_ error: String) -> some View {
-        WarningBanner(text: "Some features failed to load: \(error)")
-            .padding(.vertical, 4)
     }
 
     // MARK: - Host Info

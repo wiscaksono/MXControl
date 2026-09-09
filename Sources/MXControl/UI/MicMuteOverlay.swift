@@ -37,7 +37,32 @@ final class MicMuteOverlay {
     /// one driver ever moves the panel.
     private var slideTimer: DispatchSourceTimer?
 
-    private init() {}
+    private init() {
+        // Re-anchor when displays reconfigure (reconnect, resolution/HDR
+        // change, primary switch, menu-bar show/hide): the window server can
+        // shift visibleFrame underneath a visible panel, stranding it.
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.reanchorIfVisible()
+            }
+        }
+    }
+
+    /// Snap a visible pill back to its dock after a display reconfiguration.
+    /// No-op when hidden. Cancels any in-flight slide so it can't fight the snap.
+    private func reanchorIfVisible() {
+        guard let panel, panel.isVisible else { return }
+        animationGeneration += 1
+        slideTimer?.cancel()
+        slideTimer = nil
+        panel.alphaValue = 1
+        positionTopRight(panel)
+        logger.info("[MicMute] Re-anchored after screen change: \(NSStringFromRect(panel.frame), privacy: .public)")
+    }
 
     /// Show the muted pill. Slides in from off-screen right into the
     /// right-edge dock on hidden→visible transitions; re-showing while

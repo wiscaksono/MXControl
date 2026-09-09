@@ -2,6 +2,13 @@
 
 All notable changes to MXControl. Format follows Keep a Changelog.
 
+## [0.3.1] - 2026-09-09
+
+### Fixed
+- Mic-mute pill no longer drifts or jumps on external monitors in dual-display setups (parked fully onscreen; screens resolved from geometry).
+- Mic-mute pill slide in/out stays on its own screen and no longer strolls onto the neighboring monitor.
+- Rapid F9 presses no longer restart the pill animation.
+
 ## [0.3.0] - 2026-09-08
 
 ### Added

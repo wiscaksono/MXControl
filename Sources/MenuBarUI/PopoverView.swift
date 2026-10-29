@@ -158,6 +158,7 @@ public struct PopoverView: View {
                         )
                     )
             }
+            .scrollIndicators(.hidden)
             .frame(height: viewportHeight)
             .animation(
                 Motion.resolved(Motion.screen, reduceMotion: reduceMotion),

@@ -26,7 +26,24 @@ public final class AppModel {
         self.service = service
         self.scanDelay = scanDelay
         self.refreshInterval = refreshInterval
+        observeDeviceChanges()
         startRefreshLoop()
+    }
+
+    /// A physical control (mode-shift button, battery event) can change device
+    /// state without our involvement. Adopt it immediately instead of waiting
+    /// for the next poll.
+    private func observeDeviceChanges() {
+        NotificationCenter.default.addObserver(
+            forName: .deviceStateChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, let snapshot = await self.service.refresh() else { return }
+                self.adoptIfChanged(snapshot)
+            }
+        }
     }
 
     public func handle(_ action: UIAction) {

@@ -170,6 +170,8 @@ enum CapabilityHandlers {
 
             let mode: SmartShiftFeature.WheelMode
             var active = true
+            let previousMode = device.segmented[CapabilityID.smartShiftWheelMode]?.selected
+            let previousActive = device.toggles[CapabilityID.smartShiftActive]?.value
 
             if fid == SmartShiftFeature.featureId {
                 let status = try await SmartShiftFeature.getStatus(
@@ -190,12 +192,17 @@ enum CapabilityHandlers {
 
             device.segmented[CapabilityID.smartShiftWheelMode]?.selected = Int(mode.rawValue)
             device.toggles[CapabilityID.smartShiftActive]?.value = active
+            device.smartShiftFeatureIndex = idx
             ScrollInterceptor.shared.wheelMode = mode == .freeSpin ? .freeSpin : .ratchet
 
             // The physical button wins: keep saved prefs in sync so a reconnect
             // does not restore the previous mode.
             SettingsStore.saveValue(Int(mode.rawValue), CapabilityID.smartShiftWheelMode, scope: device.settingScope)
             SettingsStore.saveValue(active, CapabilityID.smartShiftActive, scope: device.settingScope)
+
+            if previousMode != Int(mode.rawValue) || previousActive != active {
+                NotificationCenter.default.post(name: .deviceStateChanged, object: nil)
+            }
         } catch {
             debugLog("[CapabilityHandlers] Wheel mode refresh failed: \(error)")
         }
@@ -323,6 +330,7 @@ enum CapabilityHandlers {
         var mode: SmartShiftFeature.WheelMode = .ratchet
         var active = true
         var torque = 50
+        device.smartShiftFeatureIndex = idx
 
         if fid == SmartShiftFeature.featureId {
             let caps = try await SmartShiftFeature.getCapabilities(

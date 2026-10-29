@@ -54,6 +54,10 @@ class LogiDevice: Identifiable, @unchecked Sendable {
     var smartShiftMaxForce: Int = 100
     /// Active SmartShift variant (0x2111 preferred, 0x2110 fallback).
     var smartShiftFid: UInt16?
+    /// Resolved feature index for the active SmartShift variant (v2 or v1).
+    var smartShiftFeatureIndex: UInt8?
+    /// Throttles event-driven wheel-mode refreshes from repeated reports.
+    var lastSmartShiftRefresh: Date?
     var backlightFid: UInt16?
     var backlightFeatureIndex: UInt8?
     var backlightMode: BacklightFeature.BacklightMode = .automatic
@@ -267,6 +271,17 @@ class LogiDevice: Identifiable, @unchecked Sendable {
 
     /// Handle an unsolicited HID++ notification from the device.
     func handleNotification(featureIndex: UInt8, functionId: UInt8, params: [UInt8]) {
+        // SmartShift events fire when the physical mode-shift button is used.
+        // The payload is not needed: any event means "re-read the status".
+        if let shiftIdx = smartShiftFeatureIndex, featureIndex == shiftIdx {
+            let now = Date()
+            if now.timeIntervalSince(lastSmartShiftRefresh ?? .distantPast) > 0.3 {
+                lastSmartShiftRefresh = now
+                Task { await CapabilityHandlers.refreshWheelMode(on: self) }
+            }
+            return
+        }
+
         // Battery live updates (event fn 0, same payload as getStatus).
         // Silent on parse failure: notifications must never take down the load.
         if let batteryIdx = batteryFeatureIndex, featureIndex == batteryIdx, functionId == 0x00,

@@ -27,6 +27,11 @@ public enum SettingValue: Equatable, Sendable {
     case picker(index: Int)
 }
 
+public extension Notification.Name {
+    /// Posted when a device changed state on its own (physical controls).
+    static let deviceStateChanged = Notification.Name("com.wiscaksono.mxcontrol.deviceStateChanged")
+}
+
 /// One edit the UI wants applied to a device.
 public struct DeviceChange: Equatable, Sendable {
     public var deviceID: DeviceID

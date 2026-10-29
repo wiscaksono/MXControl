@@ -206,13 +206,14 @@ final class ScrollSmoother: @unchecked Sendable {
             lock.unlock()
             return
         }
-        let interval = timerIntervalNs
-        lock.unlock()
+        // Schedule while holding the lock so a concurrent stop cannot cancel
+        // the source between the check and the reschedule.
         source.schedule(
             deadline: .now(),
-            repeating: .nanoseconds(Int(interval)),
+            repeating: .nanoseconds(Int(timerIntervalNs)),
             leeway: .nanoseconds(500_000)
         )
+        lock.unlock()
         debugLog("[ScrollSmoother] Timer rescheduled for new refresh rate")
     }
 

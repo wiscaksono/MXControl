@@ -1,12 +1,13 @@
 CONFIG ?= debug
 APP_NAME := MXControl
 APP := build/$(APP_NAME).app
+DMG := build/$(APP_NAME).dmg
 SNAPSHOT_DIR := build/snapshots
 # Falls back to ad-hoc when no development certificate is present.
 SIGNING_IDENTITY ?= $(shell security find-identity -v -p codesigning 2>/dev/null \
 	| sed -n 's/.*"\(Apple Development[^"]*\)"/\1/p' | head -1)
 
-.PHONY: build test lint format selfcheck snapshot bundle run stop dev verify release install clean
+.PHONY: build test lint format selfcheck snapshot screenshots bundle run stop dev verify release install dmg clean
 
 build:
 	swift build -c $(CONFIG)
@@ -26,6 +27,9 @@ selfcheck:
 
 snapshot:
 	swift run -c $(CONFIG) Snapshot --out $(SNAPSHOT_DIR)
+
+screenshots: snapshot
+	./scripts/screenshots.sh
 
 bundle: build
 	SIGNING_IDENTITY="$(SIGNING_IDENTITY)" ./scripts/bundle.sh "$$(swift build -c $(CONFIG) --show-bin-path)/$(APP_NAME)" "$(APP)"
@@ -63,10 +67,14 @@ release:
 	SIGNING_IDENTITY="$(SIGNING_IDENTITY)" ./scripts/bundle.sh "$$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)/$(APP_NAME)" "$(APP)"
 
 install: release
-	rm -rf /Applications/MenuBarApp.app
 	rm -rf "/Applications/$(APP_NAME).app"
 	cp -R "$(APP)" /Applications/
 	open -g "/Applications/$(APP_NAME).app"
+
+dmg: release
+	@mkdir -p build
+	rm -f "$(DMG)"
+	hdiutil create -volname "$(APP_NAME)" -srcfolder "$(APP)" -ov -format UDZO "$(DMG)"
 
 clean:
 	rm -rf .build build

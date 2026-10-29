@@ -1,7 +1,8 @@
 # AGENTS.md
 
-Menubar app: SwiftPM, macOS 14+, `NSStatusItem` + `NSPopover` shell hosting
-SwiftUI. Current UI recreates MXControl with dummy data.
+Menubar app: SwiftPM, macOS 15+, `NSStatusItem` + `NSPopover` shell hosting
+SwiftUI. The popover renders the real runtime; fixtures exist only for
+snapshots and tests.
 
 ## Verify
 
@@ -16,6 +17,8 @@ verification path.
   Snapshots verify drawing only, not interaction or focus behavior.
 - When something needs a real click, write the manual steps for the user
   instead of doing them.
+- README screenshots come from `make screenshots`, which renders the snapshot
+  fixtures into `docs/images/`. Do not hand-edit those PNGs.
 
 ## Boundaries
 
@@ -27,8 +30,14 @@ verification path.
 - `AppRuntime` owns `AppModel`. It takes a `DeviceService` in its initializer,
   so tests drive it with a stub instead of hardware.
 - Device identity is `DeviceID` (transport + unit id + serial), never a random
-  UUID, so settings survive a reconnect.
+  UUID. The serial is the transport UID (receiver or IOKit), never the device
+  name, so identity survives a rename and stays unique across receivers.
 - Hardware code lands behind `DeviceService`. Views must never import HID++.
+- Permissions: Accessibility gates Input Monitoring, and a TCC grant only
+  applies to the process that starts after it. The onboarding wizard owns
+  prompts; no device load or background service may request AX on its own.
+- Discovery runs only when the popover opens with an empty list, when
+  onboarding finishes, or on an explicit rescan. Never at launch.
 - `HIDPP` and `DeviceCore` are ported from MXControl and excluded from
   `swiftformat`/`swiftlint`. Keep edits there minimal and mechanical.
 - Hardware writes go through `DeviceService.apply(_:)`; never mutate a live
@@ -55,3 +64,7 @@ verification path.
 Existing conventions: one type per file, `@Observable` + `@MainActor` for app
 state, value types for screens, semantic fonts and shared metrics in
 `DesignTokens.swift`, `swiftformat` before commit.
+
+Version bumps touch `scripts/Info.plist`, the fallback in
+`Sources/AppCore/AppVersion.swift`, and `DummyData.version`. Keep them in sync;
+the release checklist in `CONTRIBUTING.md` is the source of truth.

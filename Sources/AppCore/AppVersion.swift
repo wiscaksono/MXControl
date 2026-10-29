@@ -6,7 +6,7 @@ public enum AppVersion {
     public static var current: String {
         let bundle = Bundle.main
         let short = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
-            ?? "0.1.0"
+            ?? "0.4.0"
         if let build = bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String,
            !build.isEmpty
         {

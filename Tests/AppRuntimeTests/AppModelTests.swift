@@ -223,13 +223,13 @@ struct AppModelUIActivityTests {
             service: FullService(),
             scanDelay: .zero
         )
-        #expect(await model.state.devices.isEmpty)
+        #expect(model.state.devices.isEmpty)
 
         await MainActor.run {
             model.setUIActive(true)
         }
         try await Task.sleep(for: .milliseconds(200))
-        #expect(await model.state.devices.count == 3)
+        #expect(model.state.devices.count == 3)
     }
 }
 

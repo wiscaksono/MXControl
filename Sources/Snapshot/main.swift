@@ -9,6 +9,7 @@ struct Fixture {
 
 let fixtures: [Fixture] = [
     Fixture(id: "root", state: DummyData.initialState()),
+    Fixture(id: "root-clean", state: DummyData.connectedState()),
     Fixture(id: "onboarding", state: DummyData.onboardingState()),
     Fixture(id: "onboarding-relaunch", state: DummyData.onboardingRelaunchState()),
     Fixture(id: "root-empty", state: DummyData.emptyState()),

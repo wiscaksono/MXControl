@@ -7,7 +7,7 @@ public enum DummyData {
     public static let keyboardID = DeviceID(transport: .usb, unitID: 2, serial: "MXKM-0002")
     public static let offlineID = DeviceID(transport: .ble, unitID: 3, serial: "MXAW-0003")
 
-    public static let version = "0.1.0"
+    public static let version = "0.4.0"
 
     public static let mouse = DeviceSummary(
         id: mouseID,
@@ -46,6 +46,17 @@ public enum DummyData {
         AppState(
             route: route,
             devices: devices,
+            details: details,
+            general: generalSettings,
+            version: version
+        )
+    }
+
+    /// Two connected devices, used for the README hero image.
+    public static func connectedState(route: Route = .root) -> AppState {
+        AppState(
+            route: route,
+            devices: [mouse, keyboard],
             details: details,
             general: generalSettings,
             version: version

@@ -30,15 +30,15 @@ public final class DeviceCoreRuntime {
     /// scanner so macOS cannot prompt on the first scan.
     public func finishOnboarding(bluetoothEnabled: Bool) {
         UserDefaults.standard.set(!bluetoothEnabled, forKey: Self.bluetoothDisabledKey)
-        manager.useBluetooth = bluetoothEnabled
+        manager.useBluetooth = bluetoothEnabled && CBManager.authorization == .allowedAlways
     }
 
     private func applyBluetoothPreference() {
         let disabled = UserDefaults.standard.bool(forKey: Self.bluetoothDisabledKey)
-        // A later grant in System Settings should re-enable scanning even if
-        // the user skipped Bluetooth during onboarding.
-        let authorized = CBManager.authorization == .allowedAlways
-        manager.useBluetooth = authorized || !disabled
+        // Never start the CoreBluetooth scanner on an undecided permission:
+        // creating it is what triggers the system prompt. A later grant in
+        // Settings flips this on at the next launch.
+        manager.useBluetooth = !disabled && CBManager.authorization == .allowedAlways
     }
 
     /// Requested once, the first time the user opens Settings, so the

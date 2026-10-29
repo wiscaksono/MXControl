@@ -5,9 +5,6 @@ struct OnboardingScreen: View {
     let permissions: PermissionState
     let onAction: (UIAction) -> Void
 
-    @State private var autoContinue: Task<Void, Never>?
-    @State private var bluetoothSkipped = false
-
     /// Order matters: macOS composes Input Monitoring on top of Accessibility,
     /// so Accessibility has to land first.
     private let stepOrder: [PermissionKind] = [.accessibility, .inputMonitoring, .bluetooth]
@@ -43,15 +40,6 @@ struct OnboardingScreen: View {
             footer
         }
         .padding(.horizontal, Metric.horizontalPadding)
-        .onChange(of: permissions) { _, state in
-            guard state.requiredGranted, state.bluetooth != .unknown || bluetoothSkipped else {
-                return
-            }
-            scheduleFinish()
-        }
-        .onDisappear {
-            autoContinue?.cancel()
-        }
     }
 
     private var header: some View {
@@ -129,7 +117,6 @@ struct OnboardingScreen: View {
                         .foregroundStyle(.secondary)
                     } else {
                         Button("Continue without Bluetooth") {
-                            bluetoothSkipped = true
                             onAction(.finishOnboardingWithoutBluetooth)
                         }
                         .buttonStyle(.plain)
@@ -207,15 +194,6 @@ struct OnboardingScreen: View {
         case .inputMonitoring: "computermouse"
         case .accessibility: "hand.raised"
         case .bluetooth: "dot.radiowaves.left.and.right"
-        }
-    }
-
-    private func scheduleFinish() {
-        autoContinue?.cancel()
-        autoContinue = Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(600))
-            guard !Task.isCancelled else { return }
-            onAction(.finishOnboarding)
         }
     }
 }

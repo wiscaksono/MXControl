@@ -178,7 +178,7 @@ struct AppModelDisconnectionTests {
 struct AppModelUIActivityTests {
     private struct FullService: DeviceService {
         nonisolated func scan() async -> DeviceSnapshot {
-            DeviceSnapshot()
+            DeviceSnapshot(devices: DummyData.devices, details: DummyData.details)
         }
 
         nonisolated func refresh() async -> DeviceSnapshot? {

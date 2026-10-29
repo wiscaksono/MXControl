@@ -215,7 +215,15 @@ public final class AppModel {
 
         Task { @MainActor in
             await refreshPermissions()
-            guard !state.showsOnboarding, let snapshot = await service.refresh() else { return }
+            guard !state.showsOnboarding else { return }
+
+            // Discovery is a user action: the popover is open right now.
+            if state.devices.isEmpty, !state.isScanning {
+                refresh()
+                return
+            }
+
+            guard let snapshot = await service.refresh() else { return }
             adoptIfChanged(snapshot)
         }
     }

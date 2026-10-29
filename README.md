@@ -49,6 +49,7 @@ This entire thing was vibe coded. Claude wrote most of it. I pointed at things a
 - Native SwiftUI menu bar popover
 - First-run wizard for Accessibility, Input Monitoring, and Bluetooth, with a Relaunch step when macOS needs a fresh process
 - Launch at login toggle
+- Hide the menu bar icon until you open the app again
 - Low battery alerts with a configurable threshold
 - Settings persist and re-apply on reconnect
 - About 6MB on disk, no Electron, no web view
@@ -82,6 +83,12 @@ On first open, the wizard asks for:
 - **Bluetooth** (direct BLE devices)
 
 Nothing is requested at launch, and no prompt appears before you open the popover. If macOS says a grant needs a restart, the wizard offers a Relaunch button.
+
+The DMG is signed with an Apple Development certificate and is not notarized. If macOS blocks the first launch on another Mac, open **System Settings → Privacy & Security → Open Anyway**, or run:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/MXControl.app
+```
 
 <p align="center">
   <img src="docs/images/onboarding.png" alt="Permission onboarding" width="300">

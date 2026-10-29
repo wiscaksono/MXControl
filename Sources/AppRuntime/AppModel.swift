@@ -222,6 +222,10 @@ public final class AppModel {
             {
                 GeneralSettings.batteryThreshold = GeneralSettings.batteryThresholdOptions[index]
             }
+        case "general.hideMenuBarIcon":
+            // Session-only: the controller owns the status item and clears
+            // this on reopen. Never persist a hidden-forever state.
+            break
         default:
             break
         }

@@ -7,7 +7,7 @@ public enum DummyData {
     public static let keyboardID = DeviceID(transport: .usb, unitID: 2, serial: "MXKM-0002")
     public static let offlineID = DeviceID(transport: .ble, unitID: 3, serial: "MXAW-0003")
 
-    public static let version = "0.4.0"
+    public static let version = "0.4.1"
 
     public static let mouse = DeviceSummary(
         id: mouseID,
@@ -108,6 +108,14 @@ public enum DummyData {
                     id: "general.launchAtLogin",
                     title: "Launch at login",
                     control: .toggle(isOn: true)
+                ),
+            ]),
+            SettingSection(id: "menubar", title: "Menu Bar", items: [
+                SettingItem(
+                    id: "general.hideMenuBarIcon",
+                    title: "Hide menu bar icon",
+                    subtitle: "Open MXControl again to bring it back",
+                    control: .toggle(isOn: false)
                 ),
             ]),
             SettingSection(id: "battery", title: "Battery", items: [

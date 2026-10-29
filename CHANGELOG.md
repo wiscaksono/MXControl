@@ -2,6 +2,13 @@
 
 All notable changes to MXControl. Format follows Keep a Changelog.
 
+## [0.4.1] - 2026-10-30
+
+### Added
+
+- General → Menu Bar → Hide menu bar icon. The icon comes back when MXControl
+  is opened again.
+
 ## [0.4.0] - 2026-10-29
 
 ### Changed

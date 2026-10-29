@@ -80,6 +80,17 @@ struct AppStateTests {
         #expect(control(state, "general.launchAtLogin") == .toggle(isOn: false))
     }
 
+    @Test func hideMenuBarIconIsSessionOnly() {
+        var state = DummyData.initialState(route: .general)
+        #expect(control(state, "general.hideMenuBarIcon") == .toggle(isOn: false))
+
+        state.toggleItem("general.hideMenuBarIcon")
+        #expect(control(state, "general.hideMenuBarIcon") == .toggle(isOn: true))
+
+        state.setGeneralToggle("general.hideMenuBarIcon", to: false)
+        #expect(control(state, "general.hideMenuBarIcon") == .toggle(isOn: false))
+    }
+
     @Test func sliderClampsToRange() {
         var state = DummyData.initialState(route: .device(DummyData.mouseID))
         state.setSlider("dpi", to: 99999)

@@ -121,9 +121,30 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         case let .toggle(itemID) where itemID == "general.launchAtLogin":
             model.handle(action)
             applyLaunchAtLogin()
+        case let .toggle(itemID) where itemID == "general.hideMenuBarIcon":
+            model.handle(action)
+            applyMenuBarVisibility()
         default:
             model.handle(action)
         }
+    }
+
+    /// Session-only hide. The item stays allocated so the reopen path can put
+    /// it back without rebuilding the popover.
+    private func applyMenuBarVisibility() {
+        let hidden = model.state.settingValue("general.hideMenuBarIcon") == .bool(true)
+        if hidden {
+            popover.performClose(nil)
+        }
+        statusItem?.isVisible = !hidden
+    }
+
+    /// The user launched MXControl while it was already running. If the icon
+    /// was hidden, show it again and clear the toggle.
+    func revealMenuBarIcon() {
+        guard statusItem?.isVisible == false else { return }
+        statusItem?.isVisible = true
+        model.syncGeneralToggle("general.hideMenuBarIcon", to: false)
     }
 
     private func applyLaunchAtLogin() {

@@ -107,8 +107,8 @@ struct BatteryFeatureTests {
         #expect(status.chargingStatus == .discharging)
     }
 
-    @Test func parseInfoTruncatedThrows() async throws {
-        await #expect(throws: (any Error).self) {
+    @Test func parseInfoTruncatedThrows() {
+        #expect(throws: (any Error).self) {
             try BatteryFeature.parseInfo(params: [50, 0x04])
         }
     }

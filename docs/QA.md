@@ -32,6 +32,9 @@ everything else is covered by `make verify`.
 
 ## App behaviour
 
+- [ ] General → Menu Bar → Hide menu bar icon: the icon disappears.
+- [ ] Open MXControl again from Applications or Spotlight: the icon is back
+      and the toggle is off.
 - [ ] Quit from the popover terminates the app and the wheel still scrolls
       in macOS (no power cycle needed).
 - [ ] `make stop` does the same: SIGTERM runs the same cleanup.

@@ -67,7 +67,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Launching the app again while it runs (Finder, Spotlight, `open -a`)
+    /// lands here. That is the way back from a hidden menu bar icon.
+    func applicationShouldHandleReopen(
+        _ sender: NSApplication,
+        hasVisibleWindows flag: Bool
+    ) -> Bool {
+        menuBar?.revealMenuBarIcon()
+        return true
+    }
+
     func applicationDidBecomeActive(_ notification: Notification) {
+        // Covers the case where the app is already active when it is reopened.
+        menuBar?.revealMenuBarIcon()
         DeviceCoreRuntime.shared.retryScrollIfNeeded()
         // Returning from System Settings should update the checkmarks at once.
         Task { @MainActor in

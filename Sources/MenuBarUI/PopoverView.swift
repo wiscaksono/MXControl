@@ -197,11 +197,14 @@ public struct PopoverView: View {
             Button {
                 onAction(.refresh)
             } label: {
-                Image(systemName: "arrow.clockwise")
+                if state.isScanning, scrollable, !reduceMotion {
+                    SpinningIcon()
+                } else {
+                    Image(systemName: "arrow.clockwise")
+                }
             }
             .buttonStyle(IconButtonStyle())
             .disabled(state.isScanning)
-            .opacity(state.isScanning ? 0.4 : 1)
             .help(state.isScanning ? "Scanning…" : "Rescan")
 
             Spacer()

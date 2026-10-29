@@ -188,6 +188,16 @@ struct BatteryPill: View {
     }
 }
 
+struct SpinningIcon: View {
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
+            let seconds = context.date.timeIntervalSinceReferenceDate
+            Image(systemName: "arrow.clockwise")
+                .rotationEffect(.degrees(seconds.truncatingRemainder(dividingBy: 1) * 360))
+        }
+    }
+}
+
 struct IconButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label

@@ -10,7 +10,7 @@ public enum BrandIcon {
         let image = loadLogo() ?? symbolFallback()
         image.isTemplate = true
         image.size = NSSize(width: size, height: size)
-        image.accessibilityDescription = "MenuBarApp"
+        image.accessibilityDescription = "MXControl"
         return image
     }
 
@@ -27,7 +27,7 @@ public enum BrandIcon {
     }
 
     private static func symbolFallback() -> NSImage {
-        NSImage(systemSymbolName: "computermouse.fill", accessibilityDescription: "MenuBarApp")
+        NSImage(systemSymbolName: "computermouse.fill", accessibilityDescription: "MXControl")
             ?? NSImage()
     }
 }

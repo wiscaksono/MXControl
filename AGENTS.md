@@ -36,7 +36,7 @@ verification path.
 - Settings keys are `mxcontrol.{descriptor}.{unit}.{setting}`. Never key by
   device name or a random UUID.
 - Views take `AppState` and emit `UIAction`. No view reads a service or device.
-- `MenuBarApp` owns process-level code: status item, popover, alerts, and
+- `MXControl` owns process-level code: status item, popover, alerts, and
   opening system settings.
 - New screen or state: add a fixture in `Sources/Snapshot/main.swift`.
 - Scroll viewport height is measured from content and capped by screen height.
@@ -45,7 +45,7 @@ verification path.
 - Controls must be custom-drawn SwiftUI shapes. AppKit-backed controls
   (`Toggle`, `Slider`, `Picker`, `.borderedProminent`) do not render in
   `ImageRenderer`, so snapshots would not match the real UI.
-- `MenuBarUI`, `MenuBarApp`, and `Snapshot` compile with
+- `MenuBarUI`, `MXControl`, and `Snapshot` compile with
   `.defaultIsolation(MainActor.self)`. Do not add it to `AppCore`; models stay
   nonisolated and `Sendable`. Popover sizing rules live in
   `AppCore/PopoverSizing.swift` and are unit tested.

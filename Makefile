@@ -1,5 +1,5 @@
 CONFIG ?= debug
-APP_NAME := MenuBarApp
+APP_NAME := MXControl
 APP := build/$(APP_NAME).app
 SNAPSHOT_DIR := build/snapshots
 # Falls back to ad-hoc when no development certificate is present.
@@ -63,6 +63,7 @@ release:
 	SIGNING_IDENTITY="$(SIGNING_IDENTITY)" ./scripts/bundle.sh "$$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)/$(APP_NAME)" "$(APP)"
 
 install: release
+	rm -rf /Applications/MenuBarApp.app
 	rm -rf "/Applications/$(APP_NAME).app"
 	cp -R "$(APP)" /Applications/
 	open -g "/Applications/$(APP_NAME).app"

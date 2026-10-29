@@ -4,7 +4,7 @@ set -euo pipefail
 BIN="${1:?usage: bundle.sh <binary> <app>}"
 APP="${2:?usage: bundle.sh <binary> <app>}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-EXECUTABLE="MenuBarApp"
+EXECUTABLE="MXControl"
 
 cd "$ROOT"
 
@@ -19,6 +19,7 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/$EXECUTABLE"
 cp scripts/Info.plist "$APP/Contents/Info.plist"
 cp Sources/Resources/logi-logo.png "$APP/Contents/Resources/logi-logo.png"
+cp Sources/Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 
 # Ad-hoc keeps local builds simple, but macOS ties HID access and TCC grants

@@ -64,7 +64,7 @@ final class MicMuteOverlay: NSObject, MicMutePresenting {
     private var frameLink: CADisplayLink?
     private var slideTimer: DispatchSourceTimer?
 
-    private override init() {
+    override private init() {
         super.init()
         // Re-anchor when displays reconfigure (reconnect, resolution/HDR
         // change, primary switch, menu-bar show/hide): the window server can
@@ -92,7 +92,10 @@ final class MicMuteOverlay: NSObject, MicMutePresenting {
         if let screen = panelScreen(panel) {
             panel.setFrame(Self.dockFrame(visible: screen.visibleFrame), display: false)
         }
-        logger.info("[MicMute] Re-anchored after screen change: \(NSStringFromRect(panel.frame), privacy: .public)")
+        logger
+            .info(
+                "[MicMute] Re-anchored after screen change: \(NSStringFromRect(panel.frame), privacy: .public)"
+            )
     }
 
     /// Show the muted pill. Slides in from off-screen right into the
@@ -101,10 +104,13 @@ final class MicMuteOverlay: NSObject, MicMutePresenting {
     /// The dock frame is computed ONCE per show and reused for start and
     /// target, so rapid toggles and multi-monitor origins can't split Y.
     func show() {
-        let panel = self.panel ?? makePanel()
+        let panel = panel ?? makePanel()
         self.panel = panel
 
-        logger.info("[MicMute] Overlay backend: \(self.usesGlass ? "NSGlassEffectView (Liquid Glass)" : "NSVisualEffectView (fallback)", privacy: .public)")
+        logger
+            .info(
+                "[MicMute] Overlay backend: \(self.usesGlass ? "NSGlassEffectView (Liquid Glass)" : "NSVisualEffectView (fallback)", privacy: .public)"
+            )
 
         guard let screen = targetScreen() else {
             panel.alphaValue = 1
@@ -118,19 +124,39 @@ final class MicMuteOverlay: NSObject, MicMutePresenting {
         if !panel.isVisible {
             // Start fully past the right screen edge, slide left into the dock.
             let startFrame = Self.offscreenFrame(from: finalFrame)
-            logger.info("[MicMute] show: \(NSStringFromRect(startFrame), privacy: .public) → \(NSStringFromRect(finalFrame), privacy: .public) gen=\(generation, privacy: .public)")
+            logger
+                .info(
+                    "[MicMute] show: \(NSStringFromRect(startFrame), privacy: .public) → \(NSStringFromRect(finalFrame), privacy: .public) gen=\(generation, privacy: .public)"
+                )
             // Order AT the dock (fully onscreen) so the window server
-            // attributes the correct display; never order at offscreen coords. Alpha is 0 so the dock frame never flashes.
+            // attributes the correct display; never order at offscreen coords. Alpha is 0 so the
+            // dock frame never flashes.
             panel.alphaValue = 0
             panel.setFrame(finalFrame, display: false)
             panel.orderFrontRegardless()
             panel.setFrame(startFrame, display: false)
-            animatePanel(on: screen, to: finalFrame, alpha: 1, duration: Layout.slideInDuration, frameEasing: easeOut, alphaEasing: delayedFadeIn, generation: generation)
+            animatePanel(
+                on: screen,
+                to: finalFrame,
+                alpha: 1,
+                duration: Layout.slideInDuration,
+                frameEasing: easeOut,
+                alphaEasing: delayedFadeIn,
+                generation: generation
+            )
         } else {
             // Same frame snapped then targeted: from == to, so only alpha
             // animates and no vertical drift is possible.
             panel.setFrame(finalFrame, display: false)
-            animatePanel(on: screen, to: finalFrame, alpha: 1, duration: 0.18, frameEasing: easeOut, alphaEasing: easeOut, generation: generation)
+            animatePanel(
+                on: screen,
+                to: finalFrame,
+                alpha: 1,
+                duration: 0.18,
+                frameEasing: easeOut,
+                alphaEasing: easeOut,
+                generation: generation
+            )
         }
     }
 
@@ -165,8 +191,19 @@ final class MicMuteOverlay: NSObject, MicMutePresenting {
         } else {
             endFrame.origin.x = panel.frame.maxX
         }
-        logger.info("[MicMute] hide: \(NSStringFromRect(panel.frame), privacy: .public) → \(NSStringFromRect(endFrame), privacy: .public) gen=\(generation, privacy: .public)")
-        animatePanel(on: screen, to: endFrame, alpha: 0, duration: Layout.slideOutDuration, frameEasing: easeIn, alphaEasing: quickFadeOut, generation: generation) {
+        logger
+            .info(
+                "[MicMute] hide: \(NSStringFromRect(panel.frame), privacy: .public) → \(NSStringFromRect(endFrame), privacy: .public) gen=\(generation, privacy: .public)"
+            )
+        animatePanel(
+            on: screen,
+            to: endFrame,
+            alpha: 0,
+            duration: Layout.slideOutDuration,
+            frameEasing: easeIn,
+            alphaEasing: quickFadeOut,
+            generation: generation
+        ) {
             panel.orderOut(nil)
         }
     }
@@ -182,19 +219,30 @@ final class MicMuteOverlay: NSObject, MicMutePresenting {
     // MARK: - Vsync Slide Driver
 
     /// Ease-out cubic.
-    private func easeOut(_ t: Double) -> Double { 1 - pow(1 - t, 3) }
+    private func easeOut(_ t: Double) -> Double {
+        1 - pow(1 - t, 3)
+    }
+
     /// Ease-in cubic.
-    private func easeIn(_ t: Double) -> Double { t * t * t }
+    private func easeIn(_ t: Double) -> Double {
+        t * t * t
+    }
+
     /// Delayed fade-in for show: stays transparent for the first 60% of the
     /// slide (while the pill still overlaps the neighboring monitor), then
     /// pops to full opacity at the dock. Mirror of `quickFadeOut` on hide:
     /// both are visible only around the dock, travel invisible.
-    private func delayedFadeIn(_ t: Double) -> Double { max(0.0, min(1.0, (t - 0.6) / 0.4)) }
+    private func delayedFadeIn(_ t: Double) -> Double {
+        max(0.0, min(1.0, (t - 0.6) / 0.4))
+    }
+
     /// Fast fade-out for hide: fully transparent 40% in. The frame eases out
     /// slowly (`easeIn`), so by the time alpha hits 0 the pill has moved only
     /// ~3px — it never visibly strolls onto the neighboring monitor on
     /// multi-display setups. The rest of the slide runs invisible.
-    private func quickFadeOut(_ t: Double) -> Double { min(1.0, t * 2.5) }
+    private func quickFadeOut(_ t: Double) -> Double {
+        min(1.0, t * 2.5)
+    }
 
     /// Stop whichever driver (DisplayLink or fallback timer) is active.
     private func cancelSlideDriver() {
@@ -245,11 +293,7 @@ final class MicMuteOverlay: NSObject, MicMutePresenting {
 
     /// One vsync tick. Always runs on the main queue.
     private func slideTick() {
-        guard let s = slide, let panel else {
-            cancelSlideDriver()
-            return
-        }
-        guard s.generation == animationGeneration else {
+        guard let s = slide, let panel, s.generation == animationGeneration else {
             cancelSlideDriver()
             return
         }
@@ -314,7 +358,12 @@ final class MicMuteOverlay: NSObject, MicMutePresenting {
         panel.isOpaque = false
         panel.ignoresMouseEvents = true
         panel.hidesOnDeactivate = false
-        panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
+        panel.collectionBehavior = [
+            .canJoinAllSpaces,
+            .stationary,
+            .fullScreenAuxiliary,
+            .ignoresCycle,
+        ]
         // .none: frames are driven manually on the display's vsync. A system
         // behavior (.utilityWindow) fades/scales on orderFront and fights the
         // driver, which reads as stutter on external monitors.
@@ -324,7 +373,9 @@ final class MicMuteOverlay: NSObject, MicMutePresenting {
         // SwiftUI .glassEffect degrades to plain blur when our LSUIElement app
         // is not focused (always, for an F9 overlay) — AppKit glass does not.
         // Otherwise fall back to classic blur.
-        if #available(macOS 26, *), !NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency {
+        if #available(macOS 26, *),
+           !NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
+        {
             panel.hasShadow = true
             // Container fills the window (fixed 48x48); the glass inside it
             // overflows right past the window edge and is clipped by the window.
@@ -347,7 +398,12 @@ final class MicMuteOverlay: NSObject, MicMutePresenting {
     /// renders untouched (masks break the render per Apple guidance).
     @available(macOS 26, *)
     private func makeGlassView() -> NSView {
-        let container = NSView(frame: NSRect(x: 0, y: 0, width: Layout.width, height: Layout.height))
+        let container = NSView(frame: NSRect(
+            x: 0,
+            y: 0,
+            width: Layout.width,
+            height: Layout.height
+        ))
         container.wantsLayer = true
         container.layer?.backgroundColor = NSColor.clear.cgColor
         // Explicit clip: the glass overflows right by design (see below), so
@@ -358,12 +414,18 @@ final class MicMuteOverlay: NSObject, MicMutePresenting {
         // Overflow covers the right curve, its highlight, and the window clip
         // margin, so the visible right edge cuts through flat glass interior.
         let glassWidth = Layout.width + Layout.cornerRadius + Layout.rightClip
-        let glass = NSGlassEffectView(frame: NSRect(x: 0, y: 0, width: glassWidth, height: Layout.height))
+        let glass = NSGlassEffectView(frame: NSRect(
+            x: 0,
+            y: 0,
+            width: glassWidth,
+            height: Layout.height
+        ))
         glass.cornerRadius = Layout.cornerRadius
         glass.style = .regular
 
         // Center the icon in the window: compensate the glass overflow.
-        let hostingView = NSHostingView(rootView: MicMutePillView(trailingPadding: glassWidth - Layout.width))
+        let hostingView =
+            NSHostingView(rootView: MicMutePillView(trailingPadding: glassWidth - Layout.width))
         glass.contentView = hostingView
 
         container.addSubview(glass)
@@ -411,7 +473,10 @@ final class MicMuteOverlay: NSObject, MicMutePresenting {
         let screens = NSScreen.screens
         guard !screens.isEmpty else { return nil }
         if let key = NSApp.keyWindow?.screen,
-           screens.contains(where: { $0 === key }) { return key }
+           screens.contains(where: { $0 === key })
+        {
+            return key
+        }
         let frames = screens.map(\.frame)
         if let i = Self.screenIndex(containing: NSEvent.mouseLocation, in: frames) {
             return screens[i]
@@ -440,11 +505,14 @@ final class MicMuteOverlay: NSObject, MicMutePresenting {
     /// testable without hardware. Internal for @testable access.
     nonisolated static func screenIndex(containing p: NSPoint, in frames: [NSRect]) -> Int? {
         guard !frames.isEmpty else { return nil }
-        if let i = frames.firstIndex(where: { NSMouseInRect(p, $0, false) }) { return i }
-        return frames.indices.min(by: { edgeDistance2(p, frames[$0]) < edgeDistance2(p, frames[$1]) })
+        if let i = frames.firstIndex(where: { NSMouseInRect(p, $0, false) }) {
+            return i
+        }
+        return frames.indices
+            .min(by: { edgeDistance2(p, frames[$0]) < edgeDistance2(p, frames[$1]) })
     }
 
-    nonisolated private static func edgeDistance2(_ p: NSPoint, _ r: NSRect) -> CGFloat {
+    private nonisolated static func edgeDistance2(_ p: NSPoint, _ r: NSRect) -> CGFloat {
         let dx = max(r.minX - p.x, 0, p.x - r.maxX)
         let dy = max(r.minY - p.y, 0, p.y - r.maxY)
         return dx * dx + dy * dy

@@ -1,6 +1,6 @@
 import Foundation
 
-/// Typed payload for `MenuBarApp --self-check`.
+/// Typed payload for `MXControl --self-check`.
 public struct SelfCheckReport: Codable, Equatable, Sendable {
     public var app: String
     public var status: String
@@ -29,7 +29,7 @@ public struct SelfCheckReport: Codable, Equatable, Sendable {
     }
 }
 
-/// Headless verification path: `MenuBarApp --self-check`.
+/// Headless verification path: `MXControl --self-check`.
 /// Prints one JSON line describing the current dummy state, no AppKit.
 public enum SelfCheck {
     public static func run() {
@@ -39,7 +39,7 @@ public enum SelfCheck {
     public static func report() -> SelfCheckReport {
         let state = DummyData.initialState()
         return SelfCheckReport(
-            app: "MenuBarApp",
+            app: "MXControl",
             status: "ok",
             route: "root",
             devices: state.devices.count,
@@ -56,7 +56,7 @@ public enum SelfCheck {
             let data = try? encoder.encode(report()),
             let json = String(data: data, encoding: .utf8)
         else {
-            return #"{"app":"MenuBarApp","status":"error"}"#
+            return #"{"app":"MXControl","status":"error"}"#
         }
         return json
     }

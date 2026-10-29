@@ -30,8 +30,9 @@ let package = Package(
             swiftSettings: [.defaultIsolation(MainActor.self)]
         ),
         .executableTarget(
-            name: "MenuBarApp",
+            name: "MXControl",
             dependencies: ["AppCore", "AppRuntime", "MenuBarUI"],
+            path: "Sources/MXControl",
             swiftSettings: [.defaultIsolation(MainActor.self)]
         ),
         .executableTarget(

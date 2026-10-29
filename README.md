@@ -1,10 +1,11 @@
-# MenuBarApp
+# MXControl
 
 macOS menubar app for Logitech MX devices. SwiftPM only, no Xcode project.
 
-The shell is `NSStatusItem` + `NSPopover` hosting SwiftUI. Device logic is
-ported from MXControl: HID++ 2.0 protocol, discovery over USB receivers and
-Bluetooth, capability handlers, scroll smoothing, thumb gestures, and mic mute.
+The shell is `NSStatusItem` + `NSPopover` hosting SwiftUI. Device logic comes
+from the original MXControl codebase: HID++ 2.0 protocol, discovery over USB
+receivers and Bluetooth, capability handlers, scroll smoothing, thumb
+gestures, and mic mute.
 
 ## Commands
 
@@ -30,7 +31,7 @@ Sources/
 ├── AppCore/       DeviceID, snapshots, presentation models, AppState
 ├── AppRuntime/    AppModel, talks to a DeviceService
 ├── MenuBarUI/     screens and custom-drawn controls
-├── MenuBarApp/    status item, popover, mic mute overlay, alerts
+├── MXControl/    status item, popover, mic mute overlay, alerts
 └── Snapshot/      renders fixtures offscreen to PNG
 ```
 

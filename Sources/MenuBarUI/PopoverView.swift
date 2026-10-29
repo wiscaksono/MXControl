@@ -150,20 +150,9 @@ public struct PopoverView: View {
                             )
                         }
                     )
-                    .id(state.route)
-                    .transition(
-                        .asymmetric(
-                            insertion: .opacity.combined(with: .offset(y: 6)),
-                            removal: .opacity.combined(with: .offset(y: -6))
-                        )
-                    )
             }
             .scrollIndicators(.hidden)
             .frame(height: viewportHeight)
-            .animation(
-                Motion.resolved(Motion.screen, reduceMotion: reduceMotion),
-                value: state.route
-            )
             .onPreferenceChange(ContentHeightKey.self) { measured in
                 contentHeight = measured
                 onHeightChange?(Self.chromeHeight + viewportHeight(for: measured))

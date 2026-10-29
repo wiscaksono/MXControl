@@ -215,18 +215,20 @@ public struct PopoverView: View {
 
     private var footer: some View {
         HStack(spacing: 6) {
-            Button {
-                onAction(.refresh)
-            } label: {
-                if state.isScanning, scrollable, !reduceMotion {
-                    SpinningIcon()
-                } else {
-                    Image(systemName: "arrow.clockwise")
+            if !state.showsOnboarding {
+                Button {
+                    onAction(.refresh)
+                } label: {
+                    if state.isScanning, scrollable, !reduceMotion {
+                        SpinningIcon()
+                    } else {
+                        Image(systemName: "arrow.clockwise")
+                    }
                 }
+                .buttonStyle(IconButtonStyle())
+                .disabled(state.isScanning)
+                .help(state.isScanning ? "Scanning…" : "Rescan")
             }
-            .buttonStyle(IconButtonStyle())
-            .disabled(state.isScanning || state.showsOnboarding)
-            .help(state.isScanning ? "Scanning…" : "Rescan")
 
             Spacer()
 

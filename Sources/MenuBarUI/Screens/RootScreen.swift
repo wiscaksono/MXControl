@@ -13,6 +13,11 @@ struct RootScreen: View {
 
     var body: some View {
         VStack(spacing: 10) {
+            if !state.permissions.requiredGranted {
+                PermissionBanner {
+                    onAction(.resumeOnboarding)
+                }
+            }
             if let warning = state.warning {
                 WarningBanner(text: warning) {
                     onAction(.openPermissionSettings)
@@ -105,6 +110,36 @@ struct DeviceRow: View {
         } else {
             "\(device.kind.label) · Offline"
         }
+    }
+}
+
+struct PermissionBanner: View {
+    let onFinishSetup: () -> Void
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 6) {
+            Image(systemName: "exclamationmark.shield")
+                .font(.caption2)
+                .foregroundStyle(.orange)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Permissions missing")
+                    .font(.caption2.weight(.semibold))
+                Text("Scroll smoothing and gestures stay off until setup is finished.")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 4)
+            Button("Finish", action: onFinishSetup)
+                .buttonStyle(.plain)
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.tint)
+        }
+        .padding(8)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.orange.opacity(0.1))
+        )
     }
 }
 

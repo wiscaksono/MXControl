@@ -21,6 +21,7 @@ public enum UIAction: Equatable, Sendable {
     case relaunchApp
     case refreshPermissions
     case skipOnboarding
+    case resumeOnboarding
     case finishOnboarding
     case refresh
     case quit

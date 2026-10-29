@@ -19,6 +19,8 @@ public final class AppModel {
     private var changeGeneration = 0
     private var lastChangeAt = Date.distantPast
     private var isUIActive = false
+    /// The user asked to reopen onboarding after skipping it.
+    private var onboardingResumed = false
 
     private static let onboardingCompletedKey = "onboardingCompleted"
 
@@ -50,7 +52,8 @@ public final class AppModel {
     public func refreshPermissions() async {
         let wasOnboarding = state.showsOnboarding
         state.permissions = await permissions.status()
-        state.showsOnboarding = !state.permissions.requiredGranted && !onboardingCompleted
+        state.showsOnboarding = !state.permissions.requiredGranted
+            && (!onboardingCompleted || onboardingResumed)
         if wasOnboarding, !state.showsOnboarding, state.devices.isEmpty, !state.isScanning {
             refresh()
         }
@@ -62,6 +65,7 @@ public final class AppModel {
 
     private func completeOnboarding() {
         UserDefaults.standard.set(true, forKey: Self.onboardingCompletedKey)
+        onboardingResumed = false
         state.showsOnboarding = false
     }
 
@@ -120,6 +124,9 @@ public final class AppModel {
             }
         case .skipOnboarding:
             completeOnboarding()
+        case .resumeOnboarding:
+            onboardingResumed = true
+            state.showsOnboarding = true
         case .finishOnboarding:
             completeOnboarding()
             refresh()

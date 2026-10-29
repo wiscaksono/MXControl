@@ -6,6 +6,9 @@ enum Metric {
     static let groupSpacing: CGFloat = 14
     static let rowPadding: CGFloat = 10
     static let cornerRadius: CGFloat = 10
+    static let headerHeight: CGFloat = 40
+    static let footerHeight: CGFloat = 30
+    static let hairlineHeight: CGFloat = 1
 }
 
 extension Color {

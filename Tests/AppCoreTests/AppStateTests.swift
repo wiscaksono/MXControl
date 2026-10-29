@@ -111,9 +111,35 @@ struct AppStateTests {
 
     @Test func selfCheckPayloadIsValidJSON() throws {
         let data = try #require(SelfCheck.payload().data(using: .utf8))
-        let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
-        #expect(object["status"] as? String == "ok")
-        #expect(object["devices"] as? Int == 2)
-        #expect(object["route"] as? String == "root")
+        let report = try JSONDecoder().decode(SelfCheckReport.self, from: data)
+        #expect(report.status == "ok")
+        #expect(report.devices == 2)
+        #expect(report.route == "root")
+        #expect(report == SelfCheck.report())
+    }
+}
+
+struct PopoverSizingTests {
+    @Test func clampsTallContentToViewport() {
+        #expect(PopoverSizing.viewportHeight(measured: 860, maxViewport: 560) == 560)
+    }
+
+    @Test func keepsContentShorterThanViewport() {
+        #expect(PopoverSizing.viewportHeight(measured: 184, maxViewport: 560) == 184)
+    }
+
+    @Test func fallsBackBeforeFirstLayoutPass() {
+        #expect(PopoverSizing.viewportHeight(measured: 0, maxViewport: 560) == PopoverSizing
+            .fallbackViewport)
+        #expect(PopoverSizing.viewportHeight(measured: 1, maxViewport: 560) == PopoverSizing
+            .fallbackViewport)
+    }
+
+    @Test func maxViewportLeavesRoomForMenuBar() {
+        #expect(PopoverSizing.maxViewport(screenHeight: 1080) == 940)
+    }
+
+    @Test func maxViewportHasFloorForTinyScreens() {
+        #expect(PopoverSizing.maxViewport(screenHeight: 300) == PopoverSizing.minimumViewport)
     }
 }

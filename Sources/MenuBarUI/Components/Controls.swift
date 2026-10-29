@@ -72,7 +72,8 @@ struct SegmentedControl: View {
                     onSelect(index)
                 } label: {
                     Text(options[index])
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.caption)
+                        .fontWeight(.medium)
                         .lineLimit(1)
                         .frame(maxWidth: .infinity)
                         .frame(height: 22)
@@ -103,31 +104,18 @@ struct BatteryRing: View {
     let battery: BatteryState
     var size: CGFloat = 46
 
-    private var tint: Color {
-        if battery.isCharging {
-            return .accentColor
-        }
-        if battery.isCritical {
-            return .red
-        }
-        if battery.isLow {
-            return .orange
-        }
-        return .green
-    }
-
     var body: some View {
         ZStack {
             Circle()
                 .stroke(Color.primary.opacity(0.1), lineWidth: 3)
             Circle()
                 .trim(from: 0, to: max(0.03, Double(battery.level) / 100))
-                .stroke(tint, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                .stroke(battery.band.ringTint, style: StrokeStyle(lineWidth: 3, lineCap: .round))
                 .rotationEffect(.degrees(-90))
             if battery.isCharging {
                 Image(systemName: "bolt.fill")
                     .font(.system(size: size * 0.3, weight: .bold))
-                    .foregroundStyle(tint)
+                    .foregroundStyle(battery.band.ringTint)
             }
         }
         .frame(width: size, height: size)
@@ -137,64 +125,46 @@ struct BatteryRing: View {
 struct BatteryPill: View {
     let battery: BatteryState
 
-    private var tint: Color {
-        if battery.isCharging {
-            return .accentColor
-        }
-        if battery.isCritical {
-            return .red
-        }
-        if battery.isLow {
-            return .orange
-        }
-        return .secondary
-    }
-
     var body: some View {
         HStack(spacing: 3) {
-            Image(systemName: battery.isCharging ? "bolt.fill" : symbolName)
-                .font(.system(size: 9, weight: .semibold))
+            Image(systemName: battery.isCharging ? "bolt.fill" : battery.symbolName)
+                .font(.caption2)
+                .fontWeight(.semibold)
             Text("\(battery.level)%")
-                .font(.system(size: 10, weight: .medium))
+                .font(.caption2)
                 .monospacedDigit()
         }
-        .foregroundStyle(tint)
+        .foregroundStyle(battery.band.pillTint)
         .padding(.horizontal, 6)
         .padding(.vertical, 2)
-        .background(Capsule().fill(tint.opacity(0.12)))
-    }
-
-    private var symbolName: String {
-        switch battery.level {
-        case ..<13: "battery.0"
-        case ..<38: "battery.25"
-        case ..<63: "battery.50"
-        case ..<88: "battery.75"
-        default: "battery.100"
-        }
+        .background(Capsule().fill(battery.band.pillTint.opacity(0.12)))
     }
 }
 
 struct TransportBadge: View {
     let transport: TransportKind
 
+    private var tint: Color {
+        transport == .ble ? .blue : .secondary
+    }
+
     var body: some View {
         Text(transport.label)
-            .font(.system(size: 9, weight: .semibold))
+            .font(.caption2)
+            .fontWeight(.semibold)
             .tracking(0.3)
-            .foregroundStyle(transport == .ble ? Color.blue : Color.secondary)
+            .foregroundStyle(tint)
             .padding(.horizontal, 5)
             .padding(.vertical, 1.5)
-            .background(
-                Capsule().fill((transport == .ble ? Color.blue : Color.secondary).opacity(0.12))
-            )
+            .background(Capsule().fill(tint.opacity(0.12)))
     }
 }
 
 struct IconButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 11, weight: .medium))
+            .font(.caption)
+            .fontWeight(.medium)
             .foregroundStyle(configuration.isPressed ? Color.primary.opacity(0.55) : Color
                 .secondary)
             .frame(width: 24, height: 22)
@@ -209,7 +179,7 @@ struct IconButtonStyle: ButtonStyle {
 struct FilledButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 12, weight: .semibold))
+            .font(.callout.weight(.semibold))
             .foregroundStyle(.white)
             .padding(.horizontal, 12)
             .frame(height: 26)
@@ -218,5 +188,59 @@ struct FilledButtonStyle: ButtonStyle {
                     .fill(Color.accentColor.opacity(configuration.isPressed ? 0.75 : 1))
             )
             .contentShape(Rectangle())
+    }
+}
+
+// MARK: - Battery presentation
+
+extension BatteryState {
+    enum Band {
+        case charging
+        case critical
+        case low
+        case normal
+    }
+
+    var band: Band {
+        if isCharging {
+            return .charging
+        }
+        if isCritical {
+            return .critical
+        }
+        if isLow {
+            return .low
+        }
+        return .normal
+    }
+
+    var symbolName: String {
+        switch level {
+        case ..<13: "battery.0"
+        case ..<38: "battery.25"
+        case ..<63: "battery.50"
+        case ..<88: "battery.75"
+        default: "battery.100"
+        }
+    }
+}
+
+private extension BatteryState.Band {
+    var ringTint: Color {
+        switch self {
+        case .charging: .accentColor
+        case .critical: .red
+        case .low: .orange
+        case .normal: .green
+        }
+    }
+
+    var pillTint: Color {
+        switch self {
+        case .charging: .accentColor
+        case .critical: .red
+        case .low: .orange
+        case .normal: .secondary
+        }
     }
 }

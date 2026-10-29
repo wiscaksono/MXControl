@@ -21,13 +21,13 @@ struct DeviceScreen: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text("\(detail.device.battery.level)%")
-                    .font(.system(size: 17, weight: .semibold, design: .rounded))
+                    .font(.system(.title3, design: .rounded, weight: .semibold))
                     .monospacedDigit()
                 Text(detail.device.battery.isCharging ? "Charging" : "On battery")
-                    .font(.system(size: 11))
+                    .font(.caption)
                     .foregroundStyle(.secondary)
                 Text(detail.connectionDetail)
-                    .font(.system(size: 10))
+                    .font(.caption2)
                     .foregroundStyle(.tertiary)
             }
 

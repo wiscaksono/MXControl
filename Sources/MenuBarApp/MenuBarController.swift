@@ -3,11 +3,11 @@ import AppKit
 import MenuBarUI
 import SwiftUI
 
-@MainActor
 final class MenuBarController: NSObject {
     private let model: AppModel
     private let popover = NSPopover()
     private var statusItem: NSStatusItem?
+    private var hostingController: NSHostingController<PopoverHost>?
 
     init(model: AppModel) {
         self.model = model
@@ -36,15 +36,12 @@ final class MenuBarController: NSObject {
         popover.animates = false
         popover.contentSize = NSSize(
             width: PopoverView.preferredWidth,
-            height: PopoverView.chromeHeight + 240
+            height: PopoverView.chromeHeight + PopoverSizing.fallbackViewport
         )
 
-        let root = PopoverHost(model: model) { [weak self] action in
-            self?.handle(action)
-        } onHeightChange: { [weak self] height in
-            self?.resize(to: height)
-        }
-        popover.contentViewController = NSHostingController(rootView: root)
+        let host = NSHostingController(rootView: makeRoot())
+        hostingController = host
+        popover.contentViewController = host
     }
 
     @objc private func togglePopover(_ sender: Any?) {
@@ -57,7 +54,25 @@ final class MenuBarController: NSObject {
 
     private func showPopover() {
         guard let button = statusItem?.button else { return }
+        // Rebuild so the viewport cap comes from the screen holding the item.
+        hostingController?.rootView = makeRoot()
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+    }
+
+    private func makeRoot() -> PopoverHost {
+        PopoverHost(
+            model: model,
+            maxContentHeight: maxViewportHeight,
+            onAction: { [weak self] action in self?.handle(action) },
+            onHeightChange: { [weak self] height in self?.resize(to: height) }
+        )
+    }
+
+    /// `NSScreen.main` follows the key window, which is not necessarily the
+    /// display whose menu bar holds the status item.
+    private var maxViewportHeight: CGFloat {
+        let screen = statusItem?.button?.window?.screen ?? NSScreen.main
+        return PopoverSizing.maxViewport(screenHeight: screen?.visibleFrame.height ?? 900)
     }
 
     /// NSPopover re-anchors itself when `contentSize` changes, so changing
@@ -66,7 +81,13 @@ final class MenuBarController: NSObject {
         guard height > 1 else { return }
         let size = NSSize(width: PopoverView.preferredWidth, height: height)
         guard abs(popover.contentSize.height - size.height) > 0.5 else { return }
-        popover.contentSize = size
+
+        // This is called from SwiftUI's layout pass; resizing the window inline
+        // re-enters layout. Hop out of the current pass first.
+        Task { @MainActor in
+            guard abs(self.popover.contentSize.height - size.height) > 0.5 else { return }
+            self.popover.contentSize = size
+        }
     }
 
     private func handle(_ action: UIAction) {
@@ -78,8 +99,9 @@ final class MenuBarController: NSObject {
     }
 }
 
-private struct PopoverHost: View {
+struct PopoverHost: View {
     let model: AppModel
+    let maxContentHeight: CGFloat
     let onAction: (UIAction) -> Void
     let onHeightChange: (CGFloat) -> Void
 
@@ -87,6 +109,7 @@ private struct PopoverHost: View {
         PopoverView(
             state: model.state,
             scrollable: true,
+            maxContentHeight: maxContentHeight,
             onAction: onAction,
             onHeightChange: onHeightChange
         )

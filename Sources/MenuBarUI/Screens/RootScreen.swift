@@ -54,7 +54,7 @@ struct DeviceRow: View {
         Button(action: action) {
             HStack(spacing: 10) {
                 Image(systemName: device.kind.symbolName)
-                    .font(.system(size: 14))
+                    .font(.body)
                     .foregroundStyle(.secondary)
                     .frame(width: 20)
 
@@ -63,7 +63,7 @@ struct DeviceRow: View {
                         .font(.system(.callout, weight: .medium))
                         .lineLimit(1)
                     Text("\(device.kind.label) · \(device.transport.label)")
-                        .font(.system(size: 10))
+                        .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
 
@@ -72,7 +72,8 @@ struct DeviceRow: View {
                 BatteryPill(battery: device.battery)
 
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(.caption2)
+                    .fontWeight(.semibold)
                     .foregroundStyle(.quaternary)
             }
             .padding(.horizontal, Metric.rowPadding)
@@ -92,10 +93,10 @@ struct WarningBanner: View {
     var body: some View {
         HStack(alignment: .top, spacing: 6) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 10))
+                .font(.caption2)
                 .foregroundStyle(.orange)
             Text(text)
-                .font(.system(size: 10))
+                .font(.caption2)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
@@ -114,12 +115,13 @@ struct EmptyStateView: View {
     var body: some View {
         VStack(spacing: 7) {
             Image(systemName: "computermouse")
-                .font(.system(size: 26, weight: .light))
+                .font(.title)
+                .fontWeight(.light)
                 .foregroundStyle(.tertiary)
             Text("No devices found")
                 .font(.system(.callout, weight: .semibold))
             Text("Pair your MX device, then scan again.")
-                .font(.system(size: 11))
+                .font(.caption)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
             Button("Scan again", action: onScan)

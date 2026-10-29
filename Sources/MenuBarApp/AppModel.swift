@@ -2,7 +2,6 @@ import AppCore
 import Foundation
 import Observation
 
-@MainActor
 @Observable
 final class AppModel {
     private(set) var state: AppState
@@ -47,7 +46,6 @@ final class AppModel {
     }
 }
 
-@MainActor
 extension AppModel {
     static let shared = AppModel()
 }

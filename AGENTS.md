@@ -29,6 +29,10 @@ verification path.
 - Controls must be custom-drawn SwiftUI shapes. AppKit-backed controls
   (`Toggle`, `Slider`, `Picker`, `.borderedProminent`) do not render in
   `ImageRenderer`, so snapshots would not match the real UI.
+- `MenuBarUI`, `MenuBarApp`, and `Snapshot` compile with
+  `.defaultIsolation(MainActor.self)`. Do not add it to `AppCore`; models stay
+  nonisolated and `Sendable`. Popover sizing rules live in
+  `AppCore/PopoverSizing.swift` and are unit tested.
 
 ## Style
 

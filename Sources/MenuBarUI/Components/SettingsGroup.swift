@@ -9,7 +9,8 @@ struct SettingsGroup: View {
         VStack(alignment: .leading, spacing: 5) {
             if let title = section.title {
                 Text(title.uppercased())
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(.caption2)
+                    .fontWeight(.semibold)
                     .tracking(0.6)
                     .foregroundStyle(.tertiary)
                     .padding(.leading, 2)
@@ -78,7 +79,8 @@ struct SettingRow: View {
                     .font(.system(.callout))
                 Spacer()
                 Text(spec.displayValue)
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.caption)
+                    .fontWeight(.medium)
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
             }
@@ -90,7 +92,7 @@ struct SettingRow: View {
                 Spacer()
                 Text(spec.maximumLabel)
             }
-            .font(.system(size: 9))
+            .font(.caption2)
             .foregroundStyle(.tertiary)
         }
         .padding(.horizontal, Metric.rowPadding)
@@ -118,11 +120,12 @@ struct SettingRow: View {
                 Spacer(minLength: 8)
                 if let detail {
                     Text(detail)
-                        .font(.system(size: 11))
+                        .font(.caption)
                         .foregroundStyle(.secondary)
                 }
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(.caption2)
+                    .fontWeight(.semibold)
                     .foregroundStyle(.quaternary)
             }
             .padding(.horizontal, Metric.rowPadding)
@@ -138,7 +141,7 @@ struct SettingRow: View {
                 .font(.system(.callout))
             Spacer(minLength: 8)
             Text(value)
-                .font(.system(size: 11))
+                .font(.caption)
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
@@ -153,7 +156,7 @@ struct SettingRow: View {
                 .font(.system(.callout))
             if let subtitle = item.subtitle {
                 Text(subtitle)
-                    .font(.system(size: 10))
+                    .font(.caption2)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }

@@ -104,6 +104,28 @@ struct AppModelDisconnectionTests {
         }
     }
 
+    private actor RecordingService: DeviceService {
+        nonisolated let snapshot: DeviceSnapshot
+        private var changes: [DeviceChange] = []
+
+        init(snapshot: DeviceSnapshot) {
+            self.snapshot = snapshot
+        }
+
+        nonisolated func scan() async -> DeviceSnapshot {
+            snapshot
+        }
+
+        func apply(_ change: DeviceChange) async -> DeviceSnapshot? {
+            changes.append(change)
+            return nil
+        }
+
+        func recorded() -> [DeviceChange] {
+            changes
+        }
+    }
+
     @Test func disconnectFallsBackToRoot() async throws {
         let model = await AppModel(
             state: DummyData.initialState(route: .device(DummyData.mouseID)),
@@ -117,6 +139,23 @@ struct AppModelDisconnectionTests {
         try await Task.sleep(for: .milliseconds(200))
         let route = await model.state.route
         #expect(route == .root)
+    }
+
+    @Test func actionRowForwardsToService() async throws {
+        let snapshot = DeviceSnapshot(devices: DummyData.devices, details: DummyData.details)
+        let service = RecordingService(snapshot: snapshot)
+        let model = AppModel(
+            state: DummyData.initialState(route: .device(DummyData.keyboardID)),
+            service: service,
+            scanDelay: .zero
+        )
+
+        model.handle(.activate(itemID: "fn.restoreDefault"))
+        try await Task.sleep(for: .milliseconds(200))
+
+        let changes = await service.recorded()
+        #expect(changes.count == 1)
+        #expect(changes.first?.itemID == "fn.restoreDefault")
     }
 
     @Test func resetKeepsLiveDevices() async {

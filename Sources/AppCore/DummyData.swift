@@ -151,22 +151,14 @@ public enum DummyData {
                         control: .toggle(isOn: true)
                     ),
                 ]),
-                SettingSection(id: "device", title: "Device", items: [
+                SettingSection(id: "hosts", title: "Hosts", items: [
                     SettingItem(
-                        id: "device.host",
-                        title: "Easy-Switch",
-                        control: .info(value: "Host 1")
+                        id: "host.0",
+                        title: "Host 1",
+                        control: .info(value: "USB · Active")
                     ),
-                    SettingItem(
-                        id: "device.firmware",
-                        title: "Firmware",
-                        control: .info(value: "22.01.0012")
-                    ),
-                    SettingItem(
-                        id: "device.battery",
-                        title: "Battery",
-                        control: .info(value: "75% · Discharging")
-                    ),
+                    SettingItem(id: "host.1", title: "Host 2", control: .info(value: "Bluetooth")),
+                    SettingItem(id: "host.2", title: "Host 3", control: .info(value: "Empty")),
                 ]),
             ]
         )
@@ -203,22 +195,10 @@ public enum DummyData {
                         title: "Layout",
                         control: .info(value: "US ANSI")
                     ),
-                ]),
-                SettingSection(id: "device", title: "Device", items: [
                     SettingItem(
-                        id: "device.host",
-                        title: "Easy-Switch",
-                        control: .info(value: "Host 1")
-                    ),
-                    SettingItem(
-                        id: "device.firmware",
-                        title: "Firmware",
-                        control: .info(value: "12.00.0021")
-                    ),
-                    SettingItem(
-                        id: "device.battery",
-                        title: "Battery",
-                        control: .info(value: "65% · Charging")
+                        id: "fn.restoreDefault",
+                        title: "Restore default",
+                        control: .action(detail: nil)
                     ),
                 ]),
             ]

@@ -66,8 +66,8 @@ public final class AppModel {
         case let .selectOption(itemID, index):
             state.selectOption(itemID, index: index)
             pushChange(itemID)
-        case .activate:
-            break // action rows are confirmed by the controller first
+        case let .activate(itemID):
+            activate(itemID)
         case .resetAll:
             state.general = DummyData.generalSettings
             state.warning = nil
@@ -107,6 +107,18 @@ public final class AppModel {
     /// Push the real system value into the general screen at launch.
     public func syncGeneralToggle(_ itemID: String, to value: Bool) {
         state.setGeneralToggle(itemID, to: value)
+    }
+
+    /// Action rows are confirmed by the controller (reset) or forwarded to the
+    /// device (restore default).
+    private func activate(_ itemID: String) {
+        guard itemID != "general.reset", case let .device(deviceID) = state.route else { return }
+
+        let change = DeviceChange(deviceID: deviceID, itemID: itemID, value: .bool(true))
+        Task { @MainActor in
+            guard let snapshot = await service.apply(change) else { return }
+            adopt(snapshot)
+        }
     }
 
     /// Optimistic UI: the local state already changed, so forward the same

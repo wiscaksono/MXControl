@@ -111,9 +111,21 @@ public final class DeviceCoreRuntime {
     /// Apply one UI edit to the matching device, then hand back the device's
     /// own values so clamping and snapping are reflected in the UI.
     public func apply(_ change: DeviceChange) async -> DeviceSnapshot? {
-        guard let device = manager.devices.first(where: { deviceID(for: $0) == change.deviceID }),
-              let capability = CapabilityID(rawValue: change.itemID)
+        guard let device = manager.devices.first(where: { deviceID(for: $0) == change.deviceID })
         else {
+            return nil
+        }
+
+        // Restore the Fn inversion state the keyboard shipped with.
+        if change.itemID == "fn.restoreDefault" {
+            guard device.toggles[CapabilityID.fnStandardKeys] != nil else { return nil }
+            let defaultInverted = device.fnDefaultState != 0
+            device.toggles[CapabilityID.fnStandardKeys]?.value = !defaultInverted
+            await device.commit(CapabilityID.fnStandardKeys)
+            return snapshot()
+        }
+
+        guard let capability = CapabilityID(rawValue: change.itemID) else {
             return nil
         }
 
@@ -220,6 +232,37 @@ public final class DeviceCoreRuntime {
                 grouped[title] = []
             }
             grouped[title]?.append(item)
+        }
+
+        if device.toggles[CapabilityID.fnStandardKeys] != nil {
+            let item = SettingItem(
+                id: "fn.restoreDefault",
+                title: "Restore default",
+                control: .action(detail: nil)
+            )
+            if grouped["Keys"] == nil {
+                order.append("Keys")
+                grouped["Keys"] = []
+            }
+            grouped["Keys"]?.append(item)
+        }
+
+        // Easy-Switch slots, read-only: switching hosts moves the connection.
+        let hosts = device.hosts
+        if !hosts.hosts.isEmpty {
+            let items = hosts.hosts.map { host in
+                var detail = host.isPaired ? host.busType.description : "Empty"
+                if host.index == hosts.currentHostIndex {
+                    detail += " · Active"
+                }
+                return SettingItem(
+                    id: "host.\(host.index)",
+                    title: "Host \(host.index + 1)",
+                    control: .info(value: detail)
+                )
+            }
+            order.append("Hosts")
+            grouped["Hosts"] = items
         }
 
         return order.map { title in

@@ -118,7 +118,7 @@ public final class AppModel {
             Task { @MainActor in
                 await refreshPermissions()
             }
-        case .finishOnboarding, .finishOnboardingWithoutBluetooth:
+        case .finishOnboarding:
             finishOnboarding()
         case .refresh:
             refresh()

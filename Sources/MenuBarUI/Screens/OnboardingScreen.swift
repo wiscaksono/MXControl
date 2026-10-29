@@ -16,9 +16,7 @@ struct OnboardingScreen: View {
 
     /// First step whose required permission is still missing.
     private var requiredStep: Int {
-        if let index = stepOrder.firstIndex(where: {
-            $0 != .bluetooth && permissions.status(for: $0) != .granted
-        }) {
+        if let index = stepOrder.firstIndex(where: { permissions.status(for: $0) != .granted }) {
             return index
         }
         return stepOrder.count - 1
@@ -39,10 +37,7 @@ struct OnboardingScreen: View {
     }
 
     private var progressLabel: String {
-        if currentKind == .bluetooth {
-            return "Optional · Step \(currentIndex + 1) of \(stepOrder.count)"
-        }
-        return "Step \(currentIndex + 1) of \(stepOrder.count)"
+        "Step \(currentIndex + 1) of \(stepOrder.count)"
     }
 
     var body: some View {
@@ -134,50 +129,8 @@ struct OnboardingScreen: View {
     }
 
     private var footer: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Button(primaryTitle, action: primaryAction)
-                .buttonStyle(FilledButtonStyle(fullWidth: true))
-
-            HStack(spacing: 6) {
-                if currentKind == .bluetooth {
-                    if permissions.bluetooth == .denied {
-                        Button {
-                            onAction(.openPermissionPane(.bluetooth))
-                        } label: {
-                            Label("Open Settings", systemImage: "gearshape")
-                        }
-                        .buttonStyle(SubtleButtonStyle())
-                    } else {
-                        Button {
-                            onAction(.finishOnboardingWithoutBluetooth)
-                        } label: {
-                            Label("Skip Bluetooth", systemImage: "xmark")
-                        }
-                        .buttonStyle(SubtleButtonStyle())
-                    }
-                } else {
-                    Button {
-                        onAction(.refreshPermissions)
-                    } label: {
-                        Label("Check again", systemImage: "arrow.clockwise")
-                    }
-                    .buttonStyle(SubtleButtonStyle())
-                }
-
-                Spacer()
-
-                if currentKind == .inputMonitoring,
-                   permissions.status(for: .inputMonitoring) == .denied
-                {
-                    Button {
-                        onAction(.relaunchApp)
-                    } label: {
-                        Label("Relaunch", systemImage: "arrow.triangle.2.circlepath")
-                    }
-                    .buttonStyle(SubtleButtonStyle())
-                }
-            }
-        }
+        Button(primaryTitle, action: primaryAction)
+            .buttonStyle(FilledButtonStyle(fullWidth: true))
     }
 
     private var primaryTitle: String {

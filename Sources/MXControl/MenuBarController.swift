@@ -109,12 +109,7 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         case let .openPermissionPane(kind):
             openPermissionPane(kind)
         case .finishOnboarding:
-            DeviceCoreRuntime.shared.finishOnboarding(
-                bluetoothEnabled: model.state.permissions.bluetooth == .granted
-            )
-            model.handle(action)
-        case .finishOnboardingWithoutBluetooth:
-            DeviceCoreRuntime.shared.finishOnboarding(bluetoothEnabled: false)
+            DeviceCoreRuntime.shared.finishOnboarding()
             model.handle(action)
         case .openGeneral:
             DeviceCoreRuntime.shared.requestNotificationsIfNeeded()

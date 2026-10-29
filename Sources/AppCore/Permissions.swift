@@ -20,11 +20,6 @@ public enum PermissionKind: String, Sendable, Equatable, CaseIterable {
         case .bluetooth: "Finds devices connected directly over Bluetooth."
         }
     }
-
-    /// Required for the core experience; Bluetooth has a USB fallback.
-    public var isRequired: Bool {
-        self != .bluetooth
-    }
 }
 
 public enum PermissionStatus: Sendable, Equatable {
@@ -71,9 +66,7 @@ public struct PermissionState: Sendable, Equatable {
     }
 
     public var requiredGranted: Bool {
-        PermissionKind.allCases
-            .filter(\.isRequired)
-            .allSatisfy { status(for: $0) == .granted }
+        PermissionKind.allCases.allSatisfy { status(for: $0) == .granted }
     }
 }
 

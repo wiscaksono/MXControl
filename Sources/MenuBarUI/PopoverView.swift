@@ -215,7 +215,15 @@ public struct PopoverView: View {
 
     private var footer: some View {
         HStack(spacing: 6) {
-            if !state.showsOnboarding {
+            if state.showsOnboarding {
+                Button {
+                    onAction(.refreshPermissions)
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .buttonStyle(IconButtonStyle())
+                .help("Check permissions again")
+            } else {
                 Button {
                     onAction(.refresh)
                 } label: {

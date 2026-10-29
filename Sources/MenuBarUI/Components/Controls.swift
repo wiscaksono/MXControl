@@ -254,21 +254,6 @@ struct FilledButtonStyle: ButtonStyle {
     }
 }
 
-struct SubtleButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 11, weight: .medium))
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 8)
-            .frame(height: 24)
-            .background(
-                RoundedRectangle(cornerRadius: Metric.controlCornerRadius, style: .continuous)
-                    .fill(Color.primary.opacity(configuration.isPressed ? 0.12 : 0.07))
-            )
-            .contentShape(Rectangle())
-    }
-}
-
 /// List rows: press feedback has to land on mouse-down, before the click
 /// commits, otherwise the row feels dead.
 struct RowButtonStyle: ButtonStyle {

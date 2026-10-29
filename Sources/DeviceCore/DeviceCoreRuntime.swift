@@ -23,22 +23,17 @@ public final class DeviceCoreRuntime {
         MicMuteEngine.shared.startDeviceMonitoring()
     }
 
-    private static let bluetoothDisabledKey = "bluetoothScanningDisabled"
     private static let notificationsRequestedKey = "notificationsRequested"
 
-    /// The user chose "Continue without Bluetooth": skip the CoreBluetooth
-    /// scanner so macOS cannot prompt on the first scan.
-    public func finishOnboarding(bluetoothEnabled: Bool) {
-        UserDefaults.standard.set(!bluetoothEnabled, forKey: Self.bluetoothDisabledKey)
-        manager.useBluetooth = bluetoothEnabled && CBManager.authorization == .allowedAlways
+    /// Bluetooth is decided in onboarding before this is called.
+    public func finishOnboarding() {
+        manager.useBluetooth = CBManager.authorization == .allowedAlways
     }
 
     private func applyBluetoothPreference() {
-        let disabled = UserDefaults.standard.bool(forKey: Self.bluetoothDisabledKey)
-        // Never start the CoreBluetooth scanner on an undecided permission:
-        // creating it is what triggers the system prompt. A later grant in
-        // Settings flips this on at the next launch.
-        manager.useBluetooth = !disabled && CBManager.authorization == .allowedAlways
+        // Never construct the CoreBluetooth scanner before the permission is
+        // granted: creating it is what raises the system prompt.
+        manager.useBluetooth = CBManager.authorization == .allowedAlways
     }
 
     /// Requested once, the first time the user opens Settings, so the

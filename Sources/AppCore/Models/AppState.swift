@@ -21,7 +21,6 @@ public enum UIAction: Equatable, Sendable {
     case relaunchApp
     case refreshPermissions
     case finishOnboarding
-    case finishOnboardingWithoutBluetooth
     case refresh
     case quit
 }

@@ -1,5 +1,6 @@
 import AppCore
 import AppRuntime
+import Foundation
 import Testing
 
 @MainActor
@@ -198,5 +199,46 @@ struct AppModelUIActivityTests {
         }
         try await Task.sleep(for: .milliseconds(200))
         #expect(await model.state.devices.count == 3)
+    }
+}
+
+@MainActor
+struct AppModelOnboardingTests {
+    private struct MissingPermissions: PermissionsService {
+        nonisolated func status() async -> PermissionState {
+            PermissionState(
+                inputMonitoring: .unknown,
+                accessibility: .unknown,
+                bluetooth: .granted
+            )
+        }
+
+        func request(_ kind: PermissionKind) async {}
+    }
+
+    private struct FullService: DeviceService {
+        nonisolated func scan() async -> DeviceSnapshot {
+            DeviceSnapshot(devices: DummyData.devices, details: DummyData.details)
+        }
+    }
+
+    @Test func missingPermissionsGateDiscovery() async throws {
+        UserDefaults.standard.removeObject(forKey: "onboardingCompleted")
+        let model = AppModel(
+            state: DummyData.emptyState(),
+            service: FullService(),
+            permissions: MissingPermissions(),
+            scanDelay: .zero
+        )
+
+        await model.start()
+        #expect(model.state.showsOnboarding)
+        #expect(model.state.devices.isEmpty)
+
+        model.handle(.finishOnboarding)
+        try await Task.sleep(for: .milliseconds(200))
+
+        #expect(!model.state.showsOnboarding)
+        #expect(model.state.devices.count == 3)
     }
 }

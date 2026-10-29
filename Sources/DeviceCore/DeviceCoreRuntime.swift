@@ -15,20 +15,16 @@ public final class DeviceCoreRuntime {
     public init() {}
 
     /// Process-level services that should run for the app's whole lifetime.
+    /// Permission prompts are deliberately not requested here; onboarding owns
+    /// that so the user knows why the dialog appeared.
     public func start() {
-        requestPermissions()
         MicMuteEngine.shared.startDeviceMonitoring()
-        BatteryNotifier.setup()
     }
 
-    /// Opening a HID device requires Input Monitoring; the event tap used for
-    /// scrolling requires Accessibility. Asking once puts both prompts in front
-    /// of the user instead of failing with a cryptic IOKit error.
-    private func requestPermissions() {
-        _ = IOHIDRequestAccess(kIOHIDRequestTypeListenEvent)
-
-        let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
-        _ = AXIsProcessTrustedWithOptions(options)
+    /// Asked after onboarding completes, so the notification prompt does not
+    /// pile on top of the permission dialogs.
+    public func requestNotifications() {
+        BatteryNotifier.setup()
     }
 
     /// Scroll interception can only start once Accessibility is granted. Retry

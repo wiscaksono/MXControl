@@ -112,7 +112,10 @@ public struct PopoverView: View {
     }
 
     private var headerTitle: String {
-        switch state.route {
+        if state.showsOnboarding {
+            return "Welcome"
+        }
+        return switch state.route {
         case .root: "MXControl"
         case .device: state.activeDetail?.device.name ?? "Device"
         case .general: "Settings"
@@ -121,6 +124,15 @@ public struct PopoverView: View {
 
     @ViewBuilder
     private var headerAccessory: some View {
+        if state.showsOnboarding {
+            EmptyView()
+        } else {
+            headerAccessoryForRoute
+        }
+    }
+
+    @ViewBuilder
+    private var headerAccessoryForRoute: some View {
         switch state.route {
         case .root, .device:
             Button {
@@ -176,6 +188,15 @@ public struct PopoverView: View {
 
     @ViewBuilder
     private var content: some View {
+        if state.showsOnboarding {
+            OnboardingScreen(permissions: state.permissions, onAction: onAction)
+        } else {
+            routeContent
+        }
+    }
+
+    @ViewBuilder
+    private var routeContent: some View {
         switch state.route {
         case .root:
             RootScreen(state: state, onAction: onAction)
@@ -204,7 +225,7 @@ public struct PopoverView: View {
                 }
             }
             .buttonStyle(IconButtonStyle())
-            .disabled(state.isScanning)
+            .disabled(state.isScanning || state.showsOnboarding)
             .help(state.isScanning ? "Scanning…" : "Rescan")
 
             Spacer()

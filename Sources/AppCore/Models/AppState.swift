@@ -16,6 +16,11 @@ public enum UIAction: Equatable, Sendable {
     case activate(itemID: String)
     case resetAll
     case openPermissionSettings
+    case requestPermission(PermissionKind)
+    case openPermissionPane(PermissionKind)
+    case refreshPermissions
+    case skipOnboarding
+    case finishOnboarding
     case refresh
     case quit
 }
@@ -27,6 +32,8 @@ public struct AppState: Equatable, Sendable {
     public var general: [SettingSection]
     public var warning: String?
     public var isScanning: Bool
+    public var permissions: PermissionState
+    public var showsOnboarding: Bool
     public var version: String
 
     public init(
@@ -36,6 +43,8 @@ public struct AppState: Equatable, Sendable {
         general: [SettingSection] = [],
         warning: String? = nil,
         isScanning: Bool = false,
+        permissions: PermissionState = .allGranted,
+        showsOnboarding: Bool = false,
         version: String = "0.0.0"
     ) {
         self.route = route
@@ -44,6 +53,8 @@ public struct AppState: Equatable, Sendable {
         self.general = general
         self.warning = warning
         self.isScanning = isScanning
+        self.permissions = permissions
+        self.showsOnboarding = showsOnboarding
         self.version = version
     }
 

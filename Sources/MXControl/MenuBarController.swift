@@ -104,8 +104,13 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         switch action {
         case .quit:
             NSApp.terminate(nil)
-        case .openPermissionSettings:
+        case .openPermissionSettings, .openPermissionPane(.inputMonitoring):
             openPermissionSettings()
+        case let .openPermissionPane(kind):
+            openPermissionPane(kind)
+        case .finishOnboarding:
+            DeviceCoreRuntime.shared.requestNotifications()
+            model.handle(action)
         case let .activate(itemID) where itemID == "general.reset":
             confirmReset()
         case let .toggle(itemID) where itemID == "general.launchAtLogin":
@@ -150,7 +155,18 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
     }
 
     private func openPermissionSettings() {
-        let target = "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent"
+        openPermissionPane(.inputMonitoring)
+    }
+
+    private func openPermissionPane(_ kind: PermissionKind) {
+        let target = switch kind {
+        case .inputMonitoring:
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent"
+        case .accessibility:
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+        case .bluetooth:
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_Bluetooth"
+        }
         guard let url = URL(string: target) else { return }
         NSWorkspace.shared.open(url)
     }

@@ -10,6 +10,7 @@ public final class AppModel {
     public private(set) var state: AppState
 
     private let service: any DeviceService
+    private let permissions: any PermissionsService
     private let scanDelay: Duration
     private let refreshInterval: Duration
     private var scanTask: Task<Void, Never>?
@@ -19,18 +20,49 @@ public final class AppModel {
     private var lastChangeAt = Date.distantPast
     private var isUIActive = false
 
+    private static let onboardingCompletedKey = "onboardingCompleted"
+
     public init(
         state: AppState = DummyData.initialState(),
         service: any DeviceService = DummyDeviceService(),
+        permissions: any PermissionsService = DummyPermissionsService(),
         scanDelay: Duration = .milliseconds(600),
         refreshInterval: Duration = .milliseconds(500)
     ) {
         self.state = state
         self.service = service
+        self.permissions = permissions
         self.scanDelay = scanDelay
         self.refreshInterval = refreshInterval
         observeDeviceChanges()
         startRefreshLoop()
+    }
+
+    /// Launch path: read permissions first, and only start discovery once the
+    /// required ones are in place.
+    public func start() async {
+        await refreshPermissions()
+        if !state.showsOnboarding {
+            refresh()
+        }
+    }
+
+    public func refreshPermissions() async {
+        let wasOnboarding = state.showsOnboarding
+        state.permissions = await permissions.status()
+        state.showsOnboarding = !state.permissions.requiredGranted && !onboardingCompleted
+        if wasOnboarding, !state.showsOnboarding, state.devices.isEmpty, !state.isScanning {
+            refresh()
+        }
+    }
+
+    private var onboardingCompleted: Bool {
+        UserDefaults.standard.bool(forKey: Self.onboardingCompletedKey)
+    }
+
+    private func completeOnboarding() {
+        UserDefaults.standard.set(true, forKey: Self.onboardingCompletedKey)
+        state.showsOnboarding = false
     }
 
     /// A physical control (mode-shift button, battery event) can change device
@@ -75,8 +107,22 @@ public final class AppModel {
                 guard let snapshot = await service.clearSettings() else { return }
                 adopt(snapshot)
             }
-        case .openPermissionSettings:
+        case .openPermissionSettings, .openPermissionPane:
             break // handled in the app layer, which owns NSWorkspace
+        case let .requestPermission(kind):
+            Task { @MainActor in
+                await permissions.request(kind)
+                await refreshPermissions()
+            }
+        case .refreshPermissions:
+            Task { @MainActor in
+                await refreshPermissions()
+            }
+        case .skipOnboarding:
+            completeOnboarding()
+        case .finishOnboarding:
+            completeOnboarding()
+            refresh()
         case .refresh:
             refresh()
         case .quit:
@@ -167,6 +213,7 @@ public final class AppModel {
         guard active else { return }
 
         Task { @MainActor in
+            await refreshPermissions()
             guard let snapshot = await service.refresh() else { return }
             adoptIfChanged(snapshot)
         }
@@ -203,6 +250,7 @@ public final class AppModel {
 public extension AppModel {
     static let shared = AppModel(
         state: AppState(general: DummyData.generalSettings, version: AppVersion.current),
-        service: HIDPPDeviceService()
+        service: HIDPPDeviceService(),
+        permissions: SystemPermissions()
     )
 }

@@ -62,6 +62,17 @@ public enum DummyData {
         return state
     }
 
+    public static func onboardingState() -> AppState {
+        var state = emptyState()
+        state.permissions = PermissionState(
+            inputMonitoring: .unknown,
+            accessibility: .denied,
+            bluetooth: .unknown
+        )
+        state.showsOnboarding = true
+        return state
+    }
+
     public static func warningState() -> AppState {
         var state = initialState()
         state.warning = "Input Monitoring permission is required for scroll interception."

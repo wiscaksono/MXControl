@@ -18,7 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menuBar = MenuBarController(model: AppModel.shared)
 
         Task { @MainActor in
-            AppModel.shared.handle(.refresh)
+            await AppModel.shared.start()
         }
     }
 

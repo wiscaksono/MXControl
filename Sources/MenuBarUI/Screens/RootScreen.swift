@@ -5,6 +5,12 @@ struct RootScreen: View {
     let state: AppState
     let onAction: (UIAction) -> Void
 
+    @Environment(\.colorSchemeContrast) private var contrast
+
+    private var strokeOpacity: Double {
+        contrast == .increased ? 0.24 : 0.06
+    }
+
     var body: some View {
         VStack(spacing: 10) {
             if let warning = state.warning {
@@ -39,7 +45,7 @@ struct RootScreen: View {
         .clipShape(RoundedRectangle(cornerRadius: Metric.cornerRadius, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: Metric.cornerRadius, style: .continuous)
-                .strokeBorder(Color.panelStroke)
+                .strokeBorder(Color.primary.opacity(strokeOpacity))
         )
     }
 }
@@ -80,7 +86,7 @@ struct DeviceRow: View {
             .frame(height: 46)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(RowButtonStyle())
         .background(Color.primary.opacity(isHovered ? 0.045 : 0))
         .animation(.easeOut(duration: 0.08), value: isHovered)
         .onHover { isHovered = $0 }

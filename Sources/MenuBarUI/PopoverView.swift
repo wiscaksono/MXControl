@@ -15,6 +15,8 @@ public struct PopoverView: View {
 
     @State private var contentHeight: CGFloat = 0
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorSchemeContrast) private var contrast
 
     /// - Parameters:
     ///   - scrollable: `false` renders the content at full height, which is what
@@ -61,7 +63,7 @@ public struct PopoverView: View {
 
     private var hairline: some View {
         Rectangle()
-            .fill(Color.primary.opacity(0.12))
+            .fill(Color.primary.opacity(contrast == .increased ? 0.3 : 0.12))
             .frame(height: Metric.hairlineHeight)
     }
 
@@ -141,8 +143,14 @@ public struct PopoverView: View {
                             )
                         }
                     )
+                    .id(state.route)
+                    .transition(.opacity)
             }
             .frame(height: viewportHeight)
+            .animation(
+                Motion.resolved(Motion.screen, reduceMotion: reduceMotion),
+                value: state.route
+            )
             .onPreferenceChange(ContentHeightKey.self) { measured in
                 contentHeight = measured
                 onHeightChange?(Self.chromeHeight + viewportHeight(for: measured))

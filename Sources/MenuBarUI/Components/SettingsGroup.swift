@@ -37,6 +37,8 @@ struct SettingRow: View {
     let item: SettingItem
     let onAction: (UIAction) -> Void
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
         Group {
             switch item.control {
@@ -68,8 +70,11 @@ struct SettingRow: View {
             .padding(.vertical, 7)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(RowButtonStyle())
         .disabled(!item.isEnabled)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(item.title))
+        .accessibilityValue(Text(isOn ? "On" : "Off"))
     }
 
     private func sliderRow(_ spec: SliderSpec) -> some View {
@@ -83,8 +88,13 @@ struct SettingRow: View {
                     .fontWeight(.medium)
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
+                    .contentTransition(.numericText())
+                    .animation(
+                        Motion.resolved(Motion.control, reduceMotion: reduceMotion),
+                        value: spec.value
+                    )
             }
-            SliderTrack(spec: spec) { value in
+            SliderTrack(spec: spec, label: item.title) { value in
                 onAction(.setSlider(itemID: item.id, value: value))
             }
             HStack {
@@ -132,7 +142,8 @@ struct SettingRow: View {
             .padding(.vertical, 8)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(RowButtonStyle())
+        .accessibilityLabel(Text(item.title))
     }
 
     private func infoRow(value: String) -> some View {

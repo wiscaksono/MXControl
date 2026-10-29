@@ -5,6 +5,13 @@ struct DeviceScreen: View {
     let detail: DeviceDetail
     let onAction: (UIAction) -> Void
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorSchemeContrast) private var contrast
+
+    private var strokeOpacity: Double {
+        contrast == .increased ? 0.24 : 0.06
+    }
+
     var body: some View {
         VStack(spacing: Metric.groupSpacing) {
             statusCard
@@ -23,6 +30,11 @@ struct DeviceScreen: View {
                 Text("\(detail.device.battery.level)%")
                     .font(.system(.title3, design: .rounded, weight: .semibold))
                     .monospacedDigit()
+                    .contentTransition(.numericText())
+                    .animation(
+                        Motion.resolved(Motion.control, reduceMotion: reduceMotion),
+                        value: detail.device.battery.level
+                    )
                 Text(detail.device.battery.isCharging ? "Charging" : "On battery")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -42,7 +54,7 @@ struct DeviceScreen: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: Metric.cornerRadius, style: .continuous)
-                .strokeBorder(Color.panelStroke)
+                .strokeBorder(Color.primary.opacity(strokeOpacity))
         )
     }
 }

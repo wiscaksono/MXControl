@@ -4,22 +4,32 @@ import SwiftUI
 struct SwitchView: View {
     let isOn: Bool
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
         Capsule()
             .fill(isOn ? Color.accentColor : Color.primary.opacity(0.16))
             .frame(width: 34, height: 20)
-            .overlay(alignment: isOn ? .trailing : .leading) {
+            .overlay {
                 Circle()
                     .fill(.white)
                     .shadow(color: .black.opacity(0.2), radius: 1, y: 0.5)
                     .padding(2)
+                    .offset(x: isOn ? 7 : -7)
             }
+            .animation(
+                Motion.resolved(Motion.control, reduceMotion: reduceMotion),
+                value: isOn
+            )
     }
 }
 
 struct SliderTrack: View {
     let spec: SliderSpec
+    let label: String
     let onChange: (Double) -> Void
+
+    @State private var grabOffset: CGFloat?
 
     var body: some View {
         GeometryReader { proxy in
@@ -41,16 +51,41 @@ struct SliderTrack: View {
             .frame(maxHeight: .infinity)
             .contentShape(Rectangle())
             .gesture(
-                DragGesture(minimumDistance: 0).onChanged { value in
-                    let ratio = min(max((value.location.x - 7) / travel, 0), 1)
-                    let span = spec.range.upperBound - spec.range.lowerBound
-                    let raw = spec.range.lowerBound + ratio * span
-                    let stepped = (raw / spec.step).rounded() * spec.step
-                    onChange(min(max(stepped, spec.range.lowerBound), spec.range.upperBound))
-                }
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        // Keep the thumb where the pointer grabbed it instead of
+                        // snapping its center under the cursor.
+                        let thumbCenter = 7 + travel * spec.fraction
+                        let offset = grabOffset ?? (value.startLocation.x - thumbCenter)
+                        if grabOffset == nil {
+                            grabOffset = offset
+                        }
+
+                        let center = value.location.x - offset
+                        let ratio = min(max((center - 7) / travel, 0), 1)
+                        let span = spec.range.upperBound - spec.range.lowerBound
+                        let raw = spec.range.lowerBound + ratio * span
+                        let stepped = (raw / spec.step).rounded() * spec.step
+                        onChange(min(max(stepped, spec.range.lowerBound), spec.range.upperBound))
+                    }
+                    .onEnded { _ in grabOffset = nil }
             )
         }
         .frame(height: 16)
+        .accessibilityElement()
+        .accessibilityLabel(Text(label))
+        .accessibilityValue(Text(spec.displayValue))
+        .accessibilityAdjustableAction { direction in
+            let keyboardStep = max(spec.step, (spec.range.upperBound - spec.range.lowerBound) / 20)
+            switch direction {
+            case .increment:
+                onChange(min(spec.value + keyboardStep, spec.range.upperBound))
+            case .decrement:
+                onChange(max(spec.value - keyboardStep, spec.range.lowerBound))
+            @unknown default:
+                break
+            }
+        }
     }
 }
 
@@ -60,6 +95,7 @@ struct SegmentedControl: View {
     let onSelect: (Int) -> Void
 
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var selectedFill: Color {
         colorScheme == .dark ? Color.white.opacity(0.16) : Color(nsColor: .windowBackgroundColor)
@@ -90,12 +126,18 @@ struct SegmentedControl: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(Text(options[index]))
+                .accessibilityAddTraits(index == selectedIndex ? .isSelected : [])
             }
         }
         .padding(2)
         .background(
             RoundedRectangle(cornerRadius: 7, style: .continuous)
                 .fill(Color.primary.opacity(0.07))
+        )
+        .animation(
+            Motion.resolved(Motion.control, reduceMotion: reduceMotion),
+            value: selectedIndex
         )
     }
 }
@@ -125,6 +167,8 @@ struct BatteryRing: View {
 struct BatteryPill: View {
     let battery: BatteryState
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
         HStack(spacing: 3) {
             Image(systemName: battery.isCharging ? "bolt.fill" : battery.symbolName)
@@ -133,11 +177,16 @@ struct BatteryPill: View {
             Text("\(battery.level)%")
                 .font(.caption2)
                 .monospacedDigit()
+                .contentTransition(.numericText())
         }
         .foregroundStyle(battery.band.pillTint)
         .padding(.horizontal, 6)
         .padding(.vertical, 2)
         .background(Capsule().fill(battery.band.pillTint.opacity(0.12)))
+        .animation(
+            Motion.resolved(Motion.control, reduceMotion: reduceMotion),
+            value: battery.level
+        )
     }
 }
 
@@ -167,7 +216,7 @@ struct IconButtonStyle: ButtonStyle {
             .fontWeight(.medium)
             .foregroundStyle(configuration.isPressed ? Color.primary.opacity(0.55) : Color
                 .secondary)
-            .frame(width: 24, height: 22)
+            .frame(width: 28, height: 24)
             .background(
                 RoundedRectangle(cornerRadius: 5, style: .continuous)
                     .fill(Color.primary.opacity(configuration.isPressed ? 0.08 : 0))
@@ -187,6 +236,16 @@ struct FilledButtonStyle: ButtonStyle {
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
                     .fill(Color.accentColor.opacity(configuration.isPressed ? 0.75 : 1))
             )
+            .contentShape(Rectangle())
+    }
+}
+
+/// List rows: press feedback has to land on mouse-down, before the click
+/// commits, otherwise the row feels dead.
+struct RowButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .opacity(configuration.isPressed ? 0.7 : 1)
             .contentShape(Rectangle())
     }
 }

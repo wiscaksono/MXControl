@@ -16,12 +16,14 @@ extension Color {
     static var panelFill: Color {
         Color.primary.opacity(0.045)
     }
+}
 
-    static var panelStroke: Color {
-        Color.primary.opacity(0.06)
-    }
+enum Motion {
+    static let control = Animation.snappy(duration: 0.15)
+    static let screen = Animation.easeOut(duration: 0.18)
 
-    static var rowHighlight: Color {
-        Color.primary.opacity(0.05)
+    /// Animations are skipped entirely when the system asks for reduced motion.
+    static func resolved(_ animation: Animation, reduceMotion: Bool) -> Animation? {
+        reduceMotion ? nil : animation
     }
 }

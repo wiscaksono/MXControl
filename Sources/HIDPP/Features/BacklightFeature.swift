@@ -242,7 +242,9 @@ public enum BacklightFeature {
 
     /// Write 0x1982 backlight config.
     ///
-    /// Params: [enabled, options, 0xFF(effect no-change), level, dho_lo, dho_hi, dhi_lo, dhi_hi, dpow_lo, dpow_hi]
+    /// Params: [enabled, options, 0xFF(effect no-change), level,
+    ///          dho_lo, dho_hi, dhi_lo, dhi_hi, dpow_lo, dpow_hi,
+    ///          dnot_lo, dnot_hi]  (12 bytes)
     private static func setBacklightV2(
         transport: HIDTransport,
         deviceIndex: UInt8,
@@ -272,6 +274,8 @@ public enum BacklightFeature {
             UInt8((dhi >> 8) & 0xFF),       // dhi high byte
             UInt8(dpow & 0xFF),             // dpow low byte (LE)
             UInt8((dpow >> 8) & 0xFF),      // dpow high byte
+            UInt8(dnot & 0xFF),             // dnot low byte (LE)
+            UInt8((dnot >> 8) & 0xFF),      // dnot high byte
         ]
 
         let _ = try await transport.send(

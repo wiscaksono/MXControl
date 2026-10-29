@@ -61,8 +61,6 @@ final class ThumbGestureBehavior: DeviceBehavior {
             return
         }
 
-        MacActions.requestAccessibilityPermission()
-
         do {
             let hasRawXY = thumbButton.flags.contains(.rawXY)
             let canPersist = thumbButton.flags.contains(.persistDivert)
@@ -82,7 +80,6 @@ final class ThumbGestureBehavior: DeviceBehavior {
     }
 
     private func divertSideButtons(controls: [SpecialKeysFeature.ControlInfo], featureIndex: UInt8) async {
-        MacActions.requestAccessibilityPermission()
         await divertSideButton(controlId: SpecialKeysFeature.KnownCID.backButton.rawValue, label: "Back", controls: controls, featureIndex: featureIndex)
         await divertSideButton(controlId: SpecialKeysFeature.KnownCID.forwardButton.rawValue, label: "Forward", controls: controls, featureIndex: featureIndex)
     }

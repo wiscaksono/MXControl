@@ -19,6 +19,7 @@ public final class AppModel {
     private var changeGeneration = 0
     private var lastChangeAt = Date.distantPast
     private var isUIActive = false
+    private var deviceObserver: NSObjectProtocol?
 
     private let onboarding: any OnboardingStore
 
@@ -40,10 +41,26 @@ public final class AppModel {
         startRefreshLoop()
     }
 
+    isolated deinit {
+        // Tests create short-lived models; leaking an observer and a sleeping
+        // poll task into NotificationCenter would outlive them.
+        if let deviceObserver {
+            NotificationCenter.default.removeObserver(deviceObserver)
+        }
+        scanTask?.cancel()
+        refreshTask?.cancel()
+        pendingChange?.cancel()
+    }
+
     /// Launch path: read permissions first, and only start discovery once the
     /// required ones are in place.
     public func start() async {
         await refreshPermissions()
+        state.setGeneralToggle("general.batteryAlerts", to: GeneralSettings.batteryAlertsEnabled)
+        state.setGeneralPicker(
+            "general.batteryThreshold",
+            index: GeneralSettings.batteryThresholdIndex
+        )
         // Launch is always silent: no discovery, no permission prompts. The
         // first scan happens when the popover opens or onboarding finishes.
     }
@@ -65,23 +82,18 @@ public final class AppModel {
         refresh()
     }
 
-    /// A physical control (mode-shift button, battery event) can change device
-    /// state without our involvement. Adopt it immediately instead of waiting
-    /// for the next poll.
-    private func observeDeviceChanges() {
-        NotificationCenter.default.addObserver(
-            forName: .deviceStateChanged,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in
-                guard let self, let snapshot = await self.service.refresh() else { return }
-                self.adoptIfChanged(snapshot)
-            }
+    public func handle(_ action: UIAction) {
+        switch action {
+        case .openDevice, .openGeneral, .back, .toggle, .setSlider, .selectOption,
+             .activate, .resetAll:
+            handleEdit(action)
+        case .openPermissionSettings, .openPermissionPane, .relaunchApp, .requestPermission,
+             .refreshPermissions, .finishOnboarding, .refresh, .quit:
+            handleLifecycle(action)
         }
     }
 
-    public func handle(_ action: UIAction) {
+    private func handleEdit(_ action: UIAction) {
         switch action {
         case let .openDevice(id):
             state.route = .device(id)
@@ -101,12 +113,21 @@ public final class AppModel {
         case let .activate(itemID):
             activate(itemID)
         case .resetAll:
-            state.general = DummyData.generalSettings
+            // General preferences belong to the app, not the device. Resetting
+            // them here would flip Launch at login in the UI without touching
+            // SMAppService.
             state.warning = nil
             Task { @MainActor in
                 guard let snapshot = await service.clearSettings() else { return }
                 adopt(snapshot)
             }
+        default:
+            break
+        }
+    }
+
+    private func handleLifecycle(_ action: UIAction) {
+        switch action {
         case .openPermissionSettings, .openPermissionPane, .relaunchApp:
             break // handled in the app layer, which owns NSWorkspace
         case let .requestPermission(kind):
@@ -124,6 +145,8 @@ public final class AppModel {
             refresh()
         case .quit:
             break // handled in the app layer, which owns NSApp
+        default:
+            break
         }
     }
 
@@ -175,8 +198,36 @@ public final class AppModel {
     /// debounce and ignore snapshots from older requests, otherwise a slow
     /// response overwrites the value the user is still dragging.
     private func pushChange(_ itemID: String) {
-        guard case .device = state.route else { return }
+        switch state.route {
+        case .device:
+            pushDeviceChange(itemID)
+        case .general:
+            persistGeneralChange(itemID)
+        case .root:
+            break
+        }
+    }
 
+    /// General rows are app preferences, not device capabilities. Persist the
+    /// ones that have a real consumer instead of dropping the edit.
+    private func persistGeneralChange(_ itemID: String) {
+        switch itemID {
+        case "general.batteryAlerts":
+            if case let .bool(enabled) = state.settingValue(itemID) {
+                GeneralSettings.batteryAlertsEnabled = enabled
+            }
+        case "general.batteryThreshold":
+            if case let .picker(index) = state.settingValue(itemID),
+               GeneralSettings.batteryThresholdOptions.indices.contains(index)
+            {
+                GeneralSettings.batteryThreshold = GeneralSettings.batteryThresholdOptions[index]
+            }
+        default:
+            break
+        }
+    }
+
+    private func pushDeviceChange(_ itemID: String) {
         changeGeneration &+= 1
         let generation = changeGeneration
         lastChangeAt = Date()
@@ -194,13 +245,31 @@ public final class AppModel {
             adopt(snapshot)
         }
     }
+}
+
+extension AppModel {
+    /// A physical control (mode-shift button, battery event) can change device
+    /// state without our involvement. Adopt it immediately instead of waiting
+    /// for the next poll.
+    private func observeDeviceChanges() {
+        deviceObserver = NotificationCenter.default.addObserver(
+            forName: .deviceStateChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, let snapshot = await self.service.refresh() else { return }
+                self.adoptIfChanged(snapshot)
+            }
+        }
+    }
 
     private func adopt(_ snapshot: DeviceSnapshot) {
         state.devices = snapshot.devices
         state.details = snapshot.details
-        if let warning = snapshot.warning {
-            state.warning = warning
-        }
+        // Assign unconditionally: keeping a stale warning made adoptIfChanged
+        // see a difference on every poll and mutate state forever.
+        state.warning = snapshot.warning
         // The device we were looking at may have disconnected.
         if case let .device(id) = state.route, snapshot.details[id] == nil {
             state.route = .root

@@ -27,8 +27,8 @@ public enum DummyData {
 
     public static let offline = DeviceSummary(
         id: offlineID,
-        name: "MX Anywhere 3S",
-        kind: .mouse,
+        name: "Logitech Device",
+        kind: .other,
         transport: .ble,
         battery: BatteryState(level: 42, isCharging: false),
         isConnected: false
@@ -64,9 +64,18 @@ public enum DummyData {
 
     public static func onboardingState() -> AppState {
         var state = emptyState()
+        // Fresh install: nothing has been requested yet.
+        state.permissions = PermissionState()
+        state.showsOnboarding = true
+        return state
+    }
+
+    /// Input Monitoring granted in Settings but the process still needs a restart.
+    public static func onboardingRelaunchState() -> AppState {
+        var state = emptyState()
         state.permissions = PermissionState(
-            inputMonitoring: .unknown,
-            accessibility: .denied,
+            inputMonitoring: .needsRelaunch,
+            accessibility: .granted,
             bluetooth: .unknown
         )
         state.showsOnboarding = true
@@ -77,147 +86,6 @@ public enum DummyData {
         var state = initialState()
         state.warning = "Input Monitoring permission is required for scroll interception."
         return state
-    }
-
-    // MARK: - Mouse
-
-    public static var mouseDetail: DeviceDetail {
-        DeviceDetail(
-            device: mouse,
-            connectionDetail: "Bluetooth · Direct",
-            sections: [
-                SettingSection(id: "wheel", title: "Wheel", items: [
-                    SettingItem(
-                        id: "wheel.smartshift",
-                        title: "SmartShift",
-                        subtitle: "Auto-switch between ratchet and free-spin",
-                        control: .toggle(isOn: true)
-                    ),
-                    SettingItem(
-                        id: "wheel.resistance",
-                        title: "Ratchet resistance",
-                        control: .slider(
-                            SliderSpec(value: 32, range: 1 ... 100, unit: "%")
-                        )
-                    ),
-                    SettingItem(
-                        id: "wheel.disengage",
-                        title: "Shift sensitivity",
-                        control: .picker(
-                            options: ["Off", "Standard", "Aggressive"],
-                            selectedIndex: 1
-                        )
-                    ),
-                ]),
-                SettingSection(id: "pointer", title: "Pointer", items: [
-                    SettingItem(
-                        id: "pointer.dpi",
-                        title: "DPI",
-                        control: .slider(
-                            SliderSpec(value: 1000, range: 200 ... 8000, step: 50, unit: "DPI")
-                        )
-                    ),
-                    SettingItem(
-                        id: "pointer.rate",
-                        title: "Report rate",
-                        control: .info(value: "125 Hz")
-                    ),
-                ]),
-                SettingSection(id: "scroll", title: "Scrolling", items: [
-                    SettingItem(
-                        id: "scroll.smooth",
-                        title: "Smooth scrolling",
-                        control: .toggle(isOn: true)
-                    ),
-                    SettingItem(
-                        id: "scroll.acceleration",
-                        title: "Acceleration",
-                        subtitle: "Match trackpad feel",
-                        control: .toggle(isOn: true)
-                    ),
-                    SettingItem(
-                        id: "scroll.natural",
-                        title: "Natural scrolling",
-                        control: .toggle(isOn: false)
-                    ),
-                    SettingItem(
-                        id: "scroll.thumbInvert",
-                        title: "Invert thumb wheel",
-                        control: .toggle(isOn: false)
-                    ),
-                ]),
-                SettingSection(id: "gestures", title: "Gestures", items: [
-                    SettingItem(
-                        id: "gestures.thumbButton",
-                        title: "Thumb button",
-                        control: .picker(
-                            options: ["Mission Control", "App Exposé", "None"],
-                            selectedIndex: 0
-                        )
-                    ),
-                    SettingItem(
-                        id: "gestures.workspaces",
-                        title: "Workspace switching",
-                        subtitle: "Hold and drag to move between desktops",
-                        control: .toggle(isOn: true)
-                    ),
-                ]),
-                SettingSection(id: "hosts", title: "Hosts", items: [
-                    SettingItem(
-                        id: "host.0",
-                        title: "MacBook Pro",
-                        control: .info(value: "USB · Active")
-                    ),
-                    SettingItem(
-                        id: "host.1",
-                        title: "Work iMac",
-                        control: .info(value: "Bluetooth")
-                    ),
-                    SettingItem(id: "host.2", title: "Host 3", control: .info(value: "Empty")),
-                ]),
-            ]
-        )
-    }
-
-    // MARK: - Keyboard
-
-    public static var keyboardDetail: DeviceDetail {
-        DeviceDetail(
-            device: keyboard,
-            connectionDetail: "USB · Bolt receiver",
-            sections: [
-                SettingSection(id: "backlight", title: "Backlight", items: [
-                    SettingItem(
-                        id: "backlight.toggle",
-                        title: "Keyboard backlight",
-                        control: .toggle(isOn: true)
-                    ),
-                    SettingItem(
-                        id: "backlight.brightness",
-                        title: "Brightness",
-                        control: .slider(SliderSpec(value: 60, range: 0 ... 100, unit: "%"))
-                    ),
-                ]),
-                SettingSection(id: "keys", title: "Keys", items: [
-                    SettingItem(
-                        id: "keys.fnInversion",
-                        title: "Fn key inversion",
-                        subtitle: "Use F1–F12 without holding Fn",
-                        control: .toggle(isOn: false)
-                    ),
-                    SettingItem(
-                        id: "keys.layout",
-                        title: "Layout",
-                        control: .info(value: "US ANSI")
-                    ),
-                    SettingItem(
-                        id: "fn.restoreDefault",
-                        title: "Restore default",
-                        control: .action(detail: nil)
-                    ),
-                ]),
-            ]
-        )
     }
 
     // MARK: - General
@@ -241,18 +109,6 @@ public enum DummyData {
                     id: "general.batteryThreshold",
                     title: "Alert threshold",
                     control: .picker(options: ["10%", "20%", "30%"], selectedIndex: 1)
-                ),
-            ]),
-            SettingSection(id: "updates", title: "Updates", items: [
-                SettingItem(
-                    id: "general.autoCheck",
-                    title: "Check automatically",
-                    control: .toggle(isOn: true)
-                ),
-                SettingItem(
-                    id: "general.interval",
-                    title: "Check interval",
-                    control: .picker(options: ["Daily", "Weekly", "Monthly"], selectedIndex: 1)
                 ),
             ]),
             SettingSection(id: "about", title: "About", items: [

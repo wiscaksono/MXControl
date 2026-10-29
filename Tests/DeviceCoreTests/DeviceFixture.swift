@@ -7,6 +7,26 @@ import Foundation
 /// without performing I/O. For scripted request/response tests, use
 /// `MockHIDTransport` in HIDPPTests instead.
 final class StubHIDTransport: HIDTransport, @unchecked Sendable {
+    struct Sent {
+        let featureIndex: UInt8
+        let functionId: UInt8
+        let params: [UInt8]
+    }
+
+    private var responses: [String: HIDPPResponse] = [:]
+    private(set) var sent: [Sent] = []
+
+    func respond(featureIndex: UInt8, functionId: UInt8, params: [UInt8]) {
+        responses["\(featureIndex):\(functionId)"] = HIDPPResponse(
+            reportId: .long,
+            deviceIndex: 0x01,
+            featureIndex: featureIndex,
+            functionId: functionId,
+            softwareId: 0x01,
+            params: params
+        )
+    }
+
     func send(
         deviceIndex: UInt8,
         featureIndex: UInt8,
@@ -14,7 +34,11 @@ final class StubHIDTransport: HIDTransport, @unchecked Sendable {
         softwareId: UInt8,
         params: [UInt8]
     ) async throws -> HIDPPResponse {
-        HIDPPResponse(
+        sent.append(Sent(featureIndex: featureIndex, functionId: functionId, params: params))
+        if let response = responses["\(featureIndex):\(functionId)"] {
+            return response
+        }
+        return HIDPPResponse(
             reportId: .long,
             deviceIndex: deviceIndex,
             featureIndex: featureIndex,

@@ -73,6 +73,37 @@ struct AppModelTests {
         #expect(model.state.devices.count == 3)
     }
 
+    @Test func refreshClearsStaleWarning() async throws {
+        var state = DummyData.initialState()
+        state.warning = "BLE access restricted"
+        let snapshot = DeviceSnapshot(
+            devices: DummyData.devices,
+            details: DummyData.details,
+            warning: nil
+        )
+        let model = AppModel(
+            state: state,
+            service: StubService(snapshot: snapshot),
+            scanDelay: .zero
+        )
+
+        model.setUIActive(true)
+        try await Task.sleep(for: .milliseconds(100))
+
+        #expect(model.state.warning == nil)
+    }
+
+    @Test func generalBatteryTogglePersists() {
+        UserDefaults.standard.removeObject(forKey: "general.batteryAlerts")
+        defer { UserDefaults.standard.removeObject(forKey: "general.batteryAlerts") }
+
+        let model = makeModel(state: DummyData.initialState(route: .general))
+        model.handle(.toggle(itemID: "general.batteryAlerts"))
+
+        #expect(model.state.settingValue("general.batteryAlerts") == .bool(false))
+        #expect(GeneralSettings.batteryAlertsEnabled == false)
+    }
+
     @Test func toggleForwardsChangeToService() async throws {
         let snapshot = DeviceSnapshot(devices: DummyData.devices, details: DummyData.details)
         let service = RecordingService(snapshot: snapshot)
@@ -82,14 +113,14 @@ struct AppModelTests {
             scanDelay: .zero
         )
 
-        model.handle(.toggle(itemID: "wheel.smartshift"))
-        #expect(model.state.settingValue("wheel.smartshift") == .bool(false))
+        model.handle(.toggle(itemID: "smartshift.active"))
+        #expect(model.state.settingValue("smartshift.active") == .bool(false))
 
         try await Task.sleep(for: .milliseconds(200))
         let changes = await service.recorded()
         #expect(changes.count == 1)
         #expect(changes.first?.deviceID == DummyData.mouseID)
-        #expect(changes.first?.itemID == "wheel.smartshift")
+        #expect(changes.first?.itemID == "smartshift.active")
         #expect(changes.first?.value == .bool(false))
     }
 }
@@ -128,17 +159,17 @@ struct AppModelDisconnectionTests {
     }
 
     @Test func disconnectFallsBackToRoot() async throws {
-        let model = await AppModel(
+        let model = AppModel(
             state: DummyData.initialState(route: .device(DummyData.mouseID)),
             service: EmptyingService(),
             scanDelay: .zero
         )
 
         await MainActor.run {
-            model.handle(.toggle(itemID: "wheel.smartshift"))
+            model.handle(.toggle(itemID: "smartshift.active"))
         }
         try await Task.sleep(for: .milliseconds(200))
-        let route = await model.state.route
+        let route = model.state.route
         #expect(route == .root)
     }
 
@@ -160,17 +191,17 @@ struct AppModelDisconnectionTests {
     }
 
     @Test func resetKeepsLiveDevices() async {
-        let model = await AppModel(
+        let model = AppModel(
             state: DummyData.initialState(route: .general),
             service: EmptyingService(),
             scanDelay: .zero
         )
-        let ids = await model.state.devices.map(\.id)
+        let ids = model.state.devices.map(\.id)
 
         await MainActor.run {
             model.handle(.resetAll)
         }
-        let after = await model.state.devices.map(\.id)
+        let after = model.state.devices.map(\.id)
         #expect(after == ids)
     }
 }
@@ -187,7 +218,7 @@ struct AppModelUIActivityTests {
     }
 
     @Test func openingThePopoverSyncsImmediately() async throws {
-        let model = await AppModel(
+        let model = AppModel(
             state: DummyData.emptyState(),
             service: FullService(),
             scanDelay: .zero

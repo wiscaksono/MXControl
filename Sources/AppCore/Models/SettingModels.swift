@@ -33,12 +33,30 @@ public struct SliderSpec: Equatable, Sendable {
 
     private var unitSuffix: String {
         guard !unit.isEmpty else { return "" }
-        return unit == "%" ? unit : " \(unit)"
+        // Percent and multipliers attach directly; other units need a space.
+        if unit == "%" || unit == "x" {
+            return unit
+        }
+        if unit.hasPrefix(" ") {
+            return unit
+        }
+        return " \(unit)"
     }
 
     private static func format(_ value: Double, step: Double) -> String {
-        let decimals = step >= 1 ? 0 : 1
-        return String(format: "%.\(decimals)f", value)
+        String(format: "%.\(decimals(for: step))f", value)
+    }
+
+    /// Smallest number of decimals that can represent the step, so a 0.01
+    /// step shows 0.92 instead of 0.9 and a 0.5 step shows 3.0.
+    private static func decimals(for step: Double) -> Int {
+        for digits in 0 ... 3 {
+            let scaled = step * pow(10, Double(digits))
+            if abs(scaled.rounded() - scaled) < 0.0001 {
+                return digits
+            }
+        }
+        return 2
     }
 }
 

@@ -63,13 +63,4 @@ enum SettingsStore {
         }
     }
 
-    static func clearMouseSettings(scope: String) {
-        clearSettings(for: scope)
-        logger.info("[SettingsStore] Cleared mouse settings for \(scope, privacy: .public)")
-    }
-
-    static func clearKeyboardSettings(scope: String) {
-        clearSettings(for: scope)
-        logger.info("[SettingsStore] Cleared keyboard settings for \(scope, privacy: .public)")
-    }
 }

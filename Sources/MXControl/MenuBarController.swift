@@ -149,8 +149,8 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         popover.performClose(nil)
 
         let alert = NSAlert()
-        alert.messageText = "Reset all settings?"
-        alert.informativeText = "Every toggle, slider, and picker goes back to its default."
+        alert.messageText = "Reset all device settings?"
+        alert.informativeText = "Every device toggle, slider, and picker goes back to its default."
         alert.alertStyle = .warning
         alert.addButton(withTitle: "Reset")
         alert.addButton(withTitle: "Cancel")

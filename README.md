@@ -45,8 +45,10 @@ The dummy service and fixtures keep screenshots and tests hardware-free.
 - **Input Monitoring** — required for scroll interception and diverted keys.
 - **Microphone** — only for the mic mute HUD (no audio is recorded).
 
-Grant them in System Settings after the first launch; the permission warning
-in the popover links straight to the right pane.
+A three-step wizard asks for Accessibility first (Input Monitoring depends on
+it), then Input Monitoring, then Bluetooth. Nothing is requested at launch.
+When a grant only applies to the next process, the wizard offers a Relaunch
+button instead of leaving the user stuck.
 
 ## Settings
 

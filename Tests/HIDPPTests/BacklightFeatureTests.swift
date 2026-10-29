@@ -122,6 +122,7 @@ struct BacklightFeatureTests {
         )
 
         let sent = mock.sentRequests[0]
+        #expect(sent.params.count == 12)
         #expect(sent.params[0] == 0x01) // enabled
         // options = (0x05 & 0x07) | (3 << 3) = 0x05 | 0x18 = 0x1D
         #expect(sent.params[1] == 0x1D)
@@ -133,6 +134,26 @@ struct BacklightFeatureTests {
         #expect(sent.params[7] == 0)    // dhi high byte
         #expect(sent.params[8] == 180)  // dpow low byte
         #expect(sent.params[9] == 0)    // dpow high byte
+        #expect(sent.params[10] == 0)   // dnot low byte
+        #expect(sent.params[11] == 0)   // dnot high byte
+    }
+
+    @Test func setBacklightV2PreservesDnot() async throws {
+        let mock = MockHIDTransport()
+        mock.respond(featureIndex: 0x07, functionId: 0x01, params: [UInt8](repeating: 0, count: 16))
+
+        try await BacklightFeature.setBacklightConfig(
+            transport: mock, deviceIndex: 0x01, featureIndex: 0x07,
+            featureId: BacklightFeature.featureIdV2,
+            enabled: true, mode: .manual, level: 5,
+            currentOptions: 0x05,
+            dho: 0x1234, dhi: 0x5678, dpow: 0x9ABC, dnot: 0xDEF0
+        )
+
+        let sent = mock.sentRequests[0]
+        #expect(sent.params.count == 12)
+        #expect(sent.params[10] == 0xF0)
+        #expect(sent.params[11] == 0xDE)
     }
 
     @Test func setBacklightV2AutoMode() async throws {

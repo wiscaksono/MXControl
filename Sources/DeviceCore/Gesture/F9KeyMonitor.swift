@@ -107,7 +107,6 @@ final class F9KeyMonitor: @unchecked Sendable {
 
         guard AXIsProcessTrusted() else {
             logger.warning("[F9KeyMonitor] Cannot start: Accessibility permission not granted")
-            MacActions.requestAccessibilityPermission()
             return
         }
 

@@ -110,6 +110,17 @@ struct OnboardingScreen: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
+            if currentKind == .inputMonitoring,
+               permissions.inputMonitoring == .needsRelaunch
+            {
+                Text(
+                    "Granted. Restart MXControl so macOS hands the listener access to the new process."
+                )
+                .font(.system(size: 10))
+                .foregroundStyle(.orange)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+
             if currentKind == .inputMonitoring, permissions.accessibility == .granted,
                permissions.inputMonitoring == .denied
             {
@@ -137,6 +148,8 @@ struct OnboardingScreen: View {
         switch permissions.status(for: currentKind) {
         case .granted:
             isLastStep ? "Continue" : "Next"
+        case .needsRelaunch:
+            "Relaunch MXControl"
         case .denied:
             "Open System Settings"
         case .unknown:
@@ -152,6 +165,8 @@ struct OnboardingScreen: View {
             } else {
                 onAction(.refreshPermissions)
             }
+        case .needsRelaunch:
+            onAction(.relaunchApp)
         case .denied:
             onAction(.openPermissionPane(currentKind))
         case .unknown:
@@ -163,7 +178,7 @@ struct OnboardingScreen: View {
         let status = permissions.status(for: kind)
         let tint: Color = switch status {
         case .granted: .green
-        case .denied: .orange
+        case .needsRelaunch, .denied: .orange
         case .unknown: .secondary
         }
         return Text(status.label)

@@ -11,6 +11,9 @@ disabled_rules:
   - line_length
   - trailing_comma
   - todo
+  # swiftformat owns brace and closure placement; its output must win.
+  - opening_brace
+  - closure_parameter_position
 
 identifier_name:
   min_length: 1

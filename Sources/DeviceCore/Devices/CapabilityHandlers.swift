@@ -55,7 +55,7 @@ enum CapabilityHandlers {
 
             case .intSlider:
                 let (def, range, step, suffix): (Int, ClosedRange<Int>, Int, String) = switch capability.id {
-                case .dpi: (1000, 200...8000, 50, " DPI")
+                case .dpi: (1000, 200...8000, 50, "DPI")
                 case .smartShiftTorque: (50, 1...100, 1, "")
                 case .gestureClickMs: (200, 100...400, 10, "ms")
                 case .gestureDragThreshold: (200, 50...500, 10, "")
@@ -179,6 +179,7 @@ enum CapabilityHandlers {
                 )
                 mode = status.wheelMode
                 active = isSmartShiftActive(status.autoDisengage)
+                rememberAutoDisengage(status.autoDisengage, on: device)
                 if status.torque > 0 {
                     device.ints[CapabilityID.smartShiftTorque]?.value = status.torque
                 }
@@ -188,6 +189,11 @@ enum CapabilityHandlers {
                 )
                 mode = status.wheelMode
                 active = isSmartShiftActive(status.autoDisengage)
+                rememberAutoDisengage(
+                    status.autoDisengage,
+                    fallback: status.autoDisengageDefault,
+                    on: device
+                )
             }
 
             device.segmented[CapabilityID.smartShiftWheelMode]?.selected = Int(mode.rawValue)
@@ -325,6 +331,21 @@ enum CapabilityHandlers {
         autoDisengage != 0 && autoDisengage != 0xFF
     }
 
+    /// Keep the last real threshold. Zero ("no change") and 0xFF ("permanent
+    /// ratchet") are wire sentinels, so the fallback covers devices that report
+    /// one of those while still exposing the factory default.
+    private static func rememberAutoDisengage(
+        _ value: Int,
+        fallback: Int = 0,
+        on device: LogiDevice
+    ) {
+        if value > 0, value < 0xFF {
+            device.smartShiftAutoDisengage = value
+        } else if fallback > 0 {
+            device.smartShiftAutoDisengage = fallback
+        }
+    }
+
     /// Resolve the SmartShift variant the device reports, preferring v2.
     /// Stores the active feature ID for commit routing.
     private static func smartShiftFeatureId(on device: LogiDevice) async throws -> UInt16 {
@@ -385,6 +406,7 @@ enum CapabilityHandlers {
             )
             mode = status.wheelMode
             active = isSmartShiftActive(status.autoDisengage)
+            rememberAutoDisengage(status.autoDisengage, fallback: caps.autoDisengageDefault, on: device)
             // Zero means unknown (truncated response), never a real torque.
             if status.torque > 0 { torque = status.torque }
         } else {
@@ -395,6 +417,11 @@ enum CapabilityHandlers {
             )
             mode = status.wheelMode
             active = isSmartShiftActive(status.autoDisengage)
+            rememberAutoDisengage(
+                status.autoDisengage,
+                fallback: status.autoDisengageDefault,
+                on: device
+            )
         }
 
         let savedMode: Int? = SettingsStore.savedValue(CapabilityID.smartShiftWheelMode, scope: device.settingScope)
@@ -412,21 +439,23 @@ enum CapabilityHandlers {
                 let echoed = try await SmartShiftFeature.setStatus(
                     transport: device.transport, deviceIndex: device.deviceIndex, featureIndex: idx,
                     wheelMode: mode,
-                    autoDisengage: active ? (savedTorque ?? 50) : 0xFF,
+                    autoDisengage: active ? max(device.smartShiftAutoDisengage, 1) : 0xFF,
                     torque: savedTorque
                 )
                 mode = echoed.wheelMode
                 active = isSmartShiftActive(echoed.autoDisengage)
+                rememberAutoDisengage(echoed.autoDisengage, on: device)
                 if echoed.torque > 0 { torque = echoed.torque }
             } else {
                 let echoed = try await SmartShiftV1Feature.setStatus(
                     transport: device.transport, deviceIndex: device.deviceIndex, featureIndex: idx,
                     wheelMode: mode,
-                    autoDisengage: active ? 50 : 0xFF,
+                    autoDisengage: active ? max(device.smartShiftAutoDisengage, 1) : 0xFF,
                     autoDisengageDefault: nil
                 )
                 mode = echoed.wheelMode
                 active = isSmartShiftActive(echoed.autoDisengage)
+                rememberAutoDisengage(echoed.autoDisengage, on: device)
             }
         }
 
@@ -657,16 +686,18 @@ enum CapabilityHandlers {
                     let status = try await SmartShiftV1Feature.setStatus(
                         transport: device.transport, deviceIndex: device.deviceIndex,
                         featureIndex: idx, wheelMode: nil,
-                        autoDisengage: enabled ? 50 : 0xFF, autoDisengageDefault: nil
+                        autoDisengage: enabled ? max(device.smartShiftAutoDisengage, 1) : 0xFF,
+                        autoDisengageDefault: nil
                     )
                     device.segmented[CapabilityID.smartShiftWheelMode]?.selected = Int(status.wheelMode.rawValue)
                     echoedActive = isSmartShiftActive(status.autoDisengage)
+                    rememberAutoDisengage(status.autoDisengage, on: device)
                 } else {
-                    let torque = device.ints[CapabilityID.smartShiftTorque]?.value
                     let status = try await SmartShiftFeature.setStatus(
                         transport: device.transport, deviceIndex: device.deviceIndex,
                         featureIndex: idx, wheelMode: nil,
-                        autoDisengage: enabled ? (torque ?? 50) : 0xFF, torque: nil
+                        autoDisengage: enabled ? max(device.smartShiftAutoDisengage, 1) : 0xFF,
+                        torque: nil
                     )
                     device.segmented[CapabilityID.smartShiftWheelMode]?.selected = Int(status.wheelMode.rawValue)
                     if status.torque > 0 {
@@ -704,11 +735,16 @@ enum CapabilityHandlers {
                     transport: device.transport, deviceIndex: device.deviceIndex,
                     featureIndex: idx,
                     target: target,
-                    hiRes: hiRes, inverted: inverted,
+                    hiRes: hiRes,
+                    // The interceptor owns direction in smooth mode; macOS
+                    // owns it on the HID path. Never invert in the firmware.
+                    inverted: false,
                     extensionBytes: device.hiResExtensionBytes
                 )
                 SettingsStore.saveValue(hiRes, CapabilityID.hiResEnabled, scope: device.settingScope)
                 SettingsStore.saveValue(inverted, CapabilityID.hiResInverted, scope: device.settingScope)
+                // Push the new direction into the interceptor immediately.
+                device.scrollBehavior?.syncServices()
 
             case .thumbWheelInverted:
                 let inverted = device.toggles[id]?.value ?? false

@@ -55,8 +55,14 @@ public final class DeviceCoreRuntime {
         MicMuteEngine.shared.isMuted
     }
 
-    /// Best-effort cleanup before the process exits.
-    public func shutdown() {
+    /// Best-effort cleanup before the process exits. Order matters: stop
+    /// synthesizing scroll events, hand the wheel back to macOS, then tear the
+    /// transport down.
+    public func shutdown() async {
+        ScrollInterceptor.shared.isEnabled = false
+        await manager.resetScrollTargetForAllDevices()
+        manager.stopDiscovery()
+        F9KeyMonitor.shared.isEnabled = false
         MicMuteEngine.shared.restoreForTermination()
     }
 
@@ -103,12 +109,11 @@ public final class DeviceCoreRuntime {
     }
 
     /// Live connection state, without rediscovering and without extra HID++ IO.
-    /// Battery polling stays with the device manager's own timer.
+    /// Wheel-mode changes arrive as SmartShift notifications, which refresh the
+    /// device and post `.deviceStateChanged`; polling them here was 2 HID++
+    /// requests per second on the mouse and a wasted local throw on keyboards.
     public func refresh() async -> DeviceSnapshot? {
-        for device in manager.devices where device.isInitialized {
-            await CapabilityHandlers.refreshWheelMode(on: device)
-        }
-        return snapshot()
+        snapshot()
     }
 
     /// Forget every saved preference and let the devices report their defaults.
@@ -189,7 +194,9 @@ public final class DeviceCoreRuntime {
         DeviceID(
             transport: transportKind(for: device),
             unitID: device.deviceIndex,
-            serial: device.name
+            // Receiver / IOKit UID, not the device name: identity must survive
+            // a rename and stay unique across receivers.
+            serial: manager.transportUID(for: device)
         )
     }
 

@@ -1,3 +1,4 @@
+import AppCore
 import HIDPP
 import Foundation
 import UserNotifications
@@ -6,8 +7,8 @@ import os
 /// Sends native macOS notifications when device battery drops below thresholds.
 ///
 /// Two levels:
-///   - **Warning** at 20%: "Battery Low"
-///   - **Critical** at 10%: "Battery Critical"
+///   - **Warning** at the General screen threshold (default 20%)
+///   - **Critical** at 10%
 ///
 /// Notifications are deduplicated per device per charge cycle.
 /// Once a level triggers, it won't fire again until the device starts charging
@@ -16,7 +17,6 @@ enum BatteryNotifier {
 
     // MARK: - Thresholds
 
-    static let warningThreshold = 20
     static let criticalThreshold = 10
 
     // MARK: - Notification State
@@ -27,8 +27,8 @@ enum BatteryNotifier {
         var criticalSent: Bool = false
     }
 
-    /// Per-device notification state, keyed by device name.
-    /// Reset when charging is detected.
+    /// Per-device notification state, keyed by the stable setting scope (or
+    /// peripheral UUID for CoreBluetooth-only devices). Reset when charging.
     nonisolated(unsafe) private static var state: [String: NotificationState] = [:]
 
     // MARK: - Setup
@@ -51,12 +51,17 @@ enum BatteryNotifier {
     ///
     /// Call this after every battery refresh poll.
     /// - Parameters:
+    ///   - scope: Stable per-device key (setting scope or peripheral UUID)
     ///   - deviceName: Human-readable device name (e.g., "MX Master 3S")
     ///   - level: Battery percentage (0-100)
     ///   - isCharging: Whether the device is currently charging
     @MainActor
-    static func checkAndNotify(deviceName: String, level: Int, isCharging: Bool) {
-        var deviceState = state[deviceName] ?? NotificationState()
+    static func checkAndNotify(scope: String, deviceName: String, level: Int, isCharging: Bool) {
+        guard GeneralSettings.batteryAlertsEnabled else { return }
+
+        let warningThreshold = GeneralSettings.batteryThreshold
+        let criticalThreshold = min(Self.criticalThreshold, warningThreshold)
+        var deviceState = state[scope] ?? NotificationState()
 
         // Reset notification state when charging starts (allows re-notify on next discharge)
         if isCharging {
@@ -65,33 +70,33 @@ enum BatteryNotifier {
             }
             deviceState.warningSent = false
             deviceState.criticalSent = false
-            state[deviceName] = deviceState
+            state[scope] = deviceState
             return
         }
 
-        // Critical: 10% or below
+        // Critical: fixed 10% (or the configured threshold if lower)
         if level <= criticalThreshold && !deviceState.criticalSent {
             sendNotification(
                 title: "Battery Critical",
                 body: "\(deviceName) battery is at \(level)%. Charge soon.",
-                identifier: "\(deviceName)-critical"
+                identifier: "\(scope)-critical"
             )
             deviceState.criticalSent = true
             deviceState.warningSent = true  // Don't also fire warning
             logger.info("[BatteryNotifier] \(deviceName) critical notification sent (\(level)%)")
         }
-        // Warning: 20% or below
+        // Warning: configured threshold
         else if level <= warningThreshold && !deviceState.warningSent {
             sendNotification(
                 title: "Battery Low",
                 body: "\(deviceName) battery is at \(level)%.",
-                identifier: "\(deviceName)-warning"
+                identifier: "\(scope)-warning"
             )
             deviceState.warningSent = true
             logger.info("[BatteryNotifier] \(deviceName) warning notification sent (\(level)%)")
         }
 
-        state[deviceName] = deviceState
+        state[scope] = deviceState
     }
 
     // MARK: - Send

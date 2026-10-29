@@ -52,6 +52,9 @@ class LogiDevice: Identifiable, @unchecked Sendable {
     var dpiStep: Int = 50
     var pointerSpeed: Int = 256
     var smartShiftMaxForce: Int = 100
+    /// Last real auto-disengage threshold (1...254). 0 and 0xFF are wire
+    /// sentinels, not thresholds, so they never overwrite this cache.
+    var smartShiftAutoDisengage: Int = 50
     /// Active SmartShift variant (0x2111 preferred, 0x2110 fallback).
     var smartShiftFid: UInt16?
     /// Resolved feature index for the active SmartShift variant (v2 or v1).

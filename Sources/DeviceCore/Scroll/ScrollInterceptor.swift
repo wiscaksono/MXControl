@@ -67,9 +67,12 @@ final class ScrollInterceptor: @unchecked Sendable {
         get { flagLock.withLock { _isEnabled } }
         set {
             flagLock.withLock { _isEnabled = newValue }
-            if newValue && !_isRunning {
+            // Read the lifecycle flag through its own lock; `_isRunning` is
+            // guarded by `lock`, not by `flagLock`.
+            let running = isRunning
+            if newValue && !running {
                 start()
-            } else if !newValue && _isRunning {
+            } else if !newValue && running {
                 stop()
             }
         }
@@ -135,9 +138,15 @@ final class ScrollInterceptor: @unchecked Sendable {
     /// Acceleration window in nanoseconds (100ms). Events older than this are pruned.
     private let accelerationWindow: UInt64 = 100_000_000
 
-    /// Cached macOS "Natural Scrolling" preference. Updated via DistributedNotificationCenter
-    /// to avoid hitting UserDefaults on every scroll event.
-    private var _isNaturalScroll: Bool = true
+    /// Direction for the HID++ smooth path. Set from the active device's
+    /// Natural Scrolling toggle. The device's invert bit already flips the
+    /// reported deltas, so applying the macOS preference here too inverted
+    /// the wheel a second time.
+    private var _naturalScroll: Bool = true
+    var naturalScroll: Bool {
+        get { flagLock.withLock { _naturalScroll } }
+        set { flagLock.withLock { _naturalScroll = newValue } }
+    }
 
     /// Fast-path handler for hi-res scroll data. Called directly from the transport
     /// thread (IOKit input report callback) to avoid @MainActor scheduling latency.
@@ -148,7 +157,9 @@ final class ScrollInterceptor: @unchecked Sendable {
     ///   - Slow scroll (few events/100ms) → ~1x (no boost)
     ///   - Fast scroll (many events/100ms) → up to ~4x amplification
     func handleHiResScroll(deltaV: Int16, deltaX: Int16 = 0, hiRes: Bool) {
-        let now = mach_absolute_time()
+        // True nanoseconds on every architecture. mach_absolute_time() is a
+        // 24 MHz tick on Apple Silicon, which stretched this window to 4.2s.
+        let now = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
 
         // Ring buffer: append timestamp, prune expired entries from head.
         // Lock-protected: reachable from any transport thread.
@@ -173,7 +184,7 @@ final class ScrollInterceptor: @unchecked Sendable {
         //               Use tick-based conversion (already divided by multiplier).
         let ppt = flagLock.withLock { _hiResPixelsPerTick }
         let basePx = hiRes ? ppt : 30.0
-        let natural = flagLock.withLock { _isNaturalScroll }
+        let natural = flagLock.withLock { _naturalScroll }
 
         let scrollY = Double(deltaV) * basePx * acceleration * (natural ? -1.0 : 1.0)
         let scrollX = Double(deltaX) * basePx * acceleration * (natural ? -1.0 : 1.0)
@@ -188,22 +199,7 @@ final class ScrollInterceptor: @unchecked Sendable {
 
     // MARK: - Init
 
-    private init() {
-        // Cache macOS natural scrolling preference and observe changes.
-        // Avoids hitting UserDefaults on every scroll event (hundreds/sec in free-spin).
-        _isNaturalScroll = UserDefaults.standard.bool(forKey: "com.apple.swipescrolldirection")
-        DistributedNotificationCenter.default().addObserver(
-            forName: .init("SwipeScrollDirectionDidChangeNotification"),
-            object: nil,
-            queue: nil
-        ) { [weak self] _ in
-            guard let self else { return }
-            // queue:nil delivers on an arbitrary thread — guard the write.
-            self.flagLock.withLock {
-                self._isNaturalScroll = UserDefaults.standard.bool(forKey: "com.apple.swipescrolldirection")
-            }
-        }
-    }
+    private init() {}
 
     // MARK: - Start / Stop
 
@@ -215,10 +211,10 @@ final class ScrollInterceptor: @unchecked Sendable {
         }
         lock.unlock()
 
-        // Check accessibility permission
+        // Check accessibility permission. Onboarding owns the prompt; a device
+        // load must never raise the system dialog on its own.
         guard AXIsProcessTrusted() else {
             logger.warning("[ScrollInterceptor] Cannot start: Accessibility permission not granted")
-            MacActions.requestAccessibilityPermission()
             return
         }
 

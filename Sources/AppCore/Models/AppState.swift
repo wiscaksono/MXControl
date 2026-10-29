@@ -72,6 +72,11 @@ public struct AppState: Equatable, Sendable {
         self.details = details
         self.warning = warning
         isScanning = false
+
+        // A rescan can drop the device the popover is currently showing.
+        if case let .device(id) = route, self.details[id] == nil {
+            route = .root
+        }
     }
 
     /// Update a general-screen toggle, e.g. after reading the real system state.
@@ -79,6 +84,15 @@ public struct AppState: Equatable, Sendable {
         Self.update(in: &general, id: itemID) { item in
             guard case .toggle = item.control else { return }
             item.control = .toggle(isOn: value)
+        }
+    }
+
+    /// Update a general-screen picker, e.g. after reading a stored preference.
+    public mutating func setGeneralPicker(_ itemID: String, index: Int) {
+        Self.update(in: &general, id: itemID) { item in
+            guard case let .picker(options, _) = item.control,
+                  options.indices.contains(index) else { return }
+            item.control = .picker(options: options, selectedIndex: index)
         }
     }
 

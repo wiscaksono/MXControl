@@ -24,12 +24,16 @@ public enum PermissionKind: String, Sendable, Equatable, CaseIterable {
 
 public enum PermissionStatus: Sendable, Equatable {
     case granted
+    /// Granted in System Settings, but this process started before the grant
+    /// and has to restart before the kernel will honor it.
+    case needsRelaunch
     case denied
     case unknown
 
     public var label: String {
         switch self {
         case .granted: "Allowed"
+        case .needsRelaunch: "Restart needed"
         case .denied: "Denied"
         case .unknown: "Not requested"
         }

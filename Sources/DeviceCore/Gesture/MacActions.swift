@@ -107,8 +107,10 @@ enum MacActions {
         keyUp.flags = arrowModifiers
 
         keyDown.post(tap: .cghidEventTap)
-        usleep(20_000)  // 20ms gap
-        keyUp.post(tap: .cghidEventTap)
+        // Never block the main actor between down and up.
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(20)) {
+            keyUp.post(tap: .cghidEventTap)
+        }
     }
 
     private static func postCommandShortcut(keyCode: CGKeyCode, label: String) {

@@ -146,15 +146,15 @@ final class ScrollSmoother: @unchecked Sendable {
     // MARK: - Lifecycle
 
     deinit {
-        // Safety net: unregister the display reconfiguration callback (which holds
-        // a raw Unmanaged pointer to self) and stop the timer to prevent dangling
-        // pointer dereference and resource leak.
+        // Unregister the display reconfiguration callback: it holds a raw
+        // Unmanaged pointer to self. A deinit cannot race a frame because the
+        // timer handler only upgrades a weak reference, so the last strong
+        // reference is gone exactly when no frame can be running.
         CGDisplayRemoveReconfigurationCallback(
             Self.displayReconfigCallback,
             Unmanaged.passUnretained(self).toOpaque()
         )
         timer?.cancel()
-        timer = nil
         eventSource = nil
     }
 
@@ -174,13 +174,17 @@ final class ScrollSmoother: @unchecked Sendable {
             refreshRate = 120  // safe fallback
         }
 
-        timerIntervalNs = UInt64(1_000_000_000.0 / refreshRate)
-
+        let interval = UInt64(1_000_000_000.0 / refreshRate)
         // Scale inputStopFrames so the time window is always ~50ms
         // e.g. 60Hz → 3 frames, 120Hz → 6 frames, 240Hz → 12 frames
-        inputStopFrames = max(3, Int((refreshRate * 0.05).rounded()))
+        let stopFrames = max(3, Int((refreshRate * 0.05).rounded()))
 
-        logger.info("[ScrollSmoother] Display refresh rate: \(Int(refreshRate))Hz, timer interval: \(self.timerIntervalNs / 1_000_000)ms, stopFrames: \(self.inputStopFrames)")
+        withLock {
+            timerIntervalNs = interval
+            inputStopFrames = stopFrames
+        }
+
+        logger.info("[ScrollSmoother] Display refresh rate: \(Int(refreshRate))Hz, timer interval: \(interval / 1_000_000)ms, stopFrames: \(stopFrames)")
     }
 
     /// Callback registered for display reconfiguration events.
@@ -197,10 +201,16 @@ final class ScrollSmoother: @unchecked Sendable {
     /// Only reschedules if the timer is currently running (on-demand model).
     private func rescheduleTimer() {
         updateTimerInterval()
-        guard timerRunning, let source = timer else { return }
+        lock.lock()
+        guard timerRunning, let source = timer else {
+            lock.unlock()
+            return
+        }
+        let interval = timerIntervalNs
+        lock.unlock()
         source.schedule(
             deadline: .now(),
-            repeating: .nanoseconds(Int(timerIntervalNs)),
+            repeating: .nanoseconds(Int(interval)),
             leeway: .nanoseconds(500_000)
         )
         debugLog("[ScrollSmoother] Timer rescheduled for new refresh rate")
@@ -230,8 +240,8 @@ final class ScrollSmoother: @unchecked Sendable {
 
         stopTimer()
 
-        // Release cached event source to free kernel resources
-        eventSource = nil
+        // Release the cached event source on the queue that owns it.
+        timerQueue.sync { eventSource = nil }
 
         withLock {
             remainY = 0
@@ -253,34 +263,55 @@ final class ScrollSmoother: @unchecked Sendable {
         lock.lock()
         guard !timerRunning else { lock.unlock(); return }
         timerRunning = true
+        let interval = timerIntervalNs
         lock.unlock()
         DiagnosticCounters.incrementScrollTimerStart()
 
         let source = DispatchSource.makeTimerSource(flags: .strict, queue: timerQueue)
         source.schedule(
             deadline: .now(),
-            repeating: .nanoseconds(Int(timerIntervalNs)),
+            repeating: .nanoseconds(Int(interval)),
             leeway: .nanoseconds(500_000)  // 0.5ms leeway
         )
         source.setEventHandler { [weak self] in
             self?.processFrame()
         }
         source.resume()
-        timer = source
 
-        debugLog("[ScrollSmoother] Timer started on-demand (\(1_000_000_000 / timerIntervalNs)Hz)")
+        lock.lock()
+        if timerRunning {
+            timer = source
+            lock.unlock()
+        } else {
+            // A frame already stopped it (or stop() ran) before we could
+            // publish the source.
+            lock.unlock()
+            source.cancel()
+        }
+
+        debugLog("[ScrollSmoother] Timer started on-demand (\(1_000_000_000 / interval)Hz)")
     }
 
     /// Stop the high-frequency timer. Called when animation completes (no more scroll to process).
     private func stopTimer() {
         lock.lock()
-        guard timerRunning else { lock.unlock(); return }
-        timerRunning = false
+        let source = takeTimerLocked()
         lock.unlock()
-        timer?.cancel()
-        timer = nil
+        guard let source else { return }
+        source.cancel()
 
         debugLog("[ScrollSmoother] Timer stopped (idle)")
+    }
+
+    /// Clear the timer state and hand the source back for cancellation.
+    /// Must be called with `lock` held so `accumulate()` cannot observe
+    /// `timerRunning == true` after the timer has already been killed.
+    private func takeTimerLocked() -> DispatchSourceTimer? {
+        guard timerRunning else { return nil }
+        timerRunning = false
+        let source = timer
+        timer = nil
+        return source
     }
 
     // MARK: - Accumulate (called from CGEventTap thread)
@@ -371,8 +402,10 @@ final class ScrollSmoother: @unchecked Sendable {
         if deadX { remainX = 0; subPixelX = 0 }
         if deadY && deadX {
             isAnimating = false
+            let source = takeTimerLocked()
             lock.unlock()
-            stopTimer()
+            source?.cancel()
+            debugLog("[ScrollSmoother] Timer stopped (idle)")
             return
         }
 

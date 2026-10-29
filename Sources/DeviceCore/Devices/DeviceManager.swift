@@ -30,7 +30,10 @@ final class DeviceManager {
 
     private var transport: USBTransport?
 
-    private var discoveryTask: Task<Void, Never>?
+    /// Bumped on every stop/start. In-flight probes capture it and refuse to
+    /// publish into a newer session.
+    private var discoveryGeneration = 0
+
     private var batteryRefreshTask: Task<Void, Never>?
     /// Guards against multiple probeReceiverDevices() from multiple HID interface matches.
     private var isProbing: Bool = false
@@ -76,7 +79,7 @@ final class DeviceManager {
 
     /// Notification observer token for mic-mute config changes.
     /// Non-isolated so deinit (nonisolated) can remove it. Set once in init.
-    nonisolated(unsafe) private var micMuteObserver: NSObjectProtocol?
+    @ObservationIgnored nonisolated(unsafe) private var micMuteObserver: NSObjectProtocol?
 
     // MARK: - Init
 
@@ -107,6 +110,8 @@ final class DeviceManager {
     /// Start discovery via IOHIDManager (handles both USB and BLE).
     func startDiscovery() {
         guard transport == nil else { return }
+        discoveryGeneration &+= 1
+        let generation = discoveryGeneration
 
         logger.info("[DeviceManager] Starting discovery (USB + BLE via IOKit)...")
         statusMessage = "Starting discovery..."
@@ -168,11 +173,15 @@ final class DeviceManager {
                 try await t.open()
                 logger.info("[DeviceManager] IOHIDManager opened, scanning for Logitech devices (USB + BLE)...")
             } catch HIDPPError.tccDenied {
+                guard self.discoveryGeneration == generation, self.transport === t else { return }
                 logger.error("[DeviceManager] TCC denied — Input Monitoring permission not granted")
                 self.transport = nil
                 self.isScanning = false
                 self.statusMessage = "Input Monitoring permission required"
             } catch {
+                // A rescan may have replaced this transport while open() was
+                // failing; never tear down the new session.
+                guard self.discoveryGeneration == generation, self.transport === t else { return }
                 logger.error("[DeviceManager] Failed to open IOHIDManager: \(error.localizedDescription, privacy: .public)")
                 // Reset state so startDiscovery() can be called again (e.g. via Rescan button)
                 self.transport = nil
@@ -198,8 +207,8 @@ final class DeviceManager {
 
     /// Stop all discovery and clean up.
     func stopDiscovery() {
-        discoveryTask?.cancel()
-        discoveryTask = nil
+        discoveryGeneration &+= 1
+        isProbing = false
         stopBatteryRefresh()
 
         transport?.close()
@@ -251,8 +260,12 @@ final class DeviceManager {
             debugLog("[DeviceManager] probeReceiverDevices: already probing, skipping")
             return
         }
+        let generation = discoveryGeneration
         isProbing = true
-        defer { isProbing = false }
+        defer {
+            // A newer session owns isProbing now; do not clear its marker.
+            if generation == discoveryGeneration { isProbing = false }
+        }
 
         statusMessage = "Probing receiver for devices..."
         logger.info("[DeviceManager] Probing receiver indices 1-6...")
@@ -272,12 +285,14 @@ final class DeviceManager {
                     params: [0x00, 0x00, 0xAA],
                     timeout: 1.5
                 )
+                guard generation == discoveryGeneration, self.transport === transport else { return }
 
                 logger.info("[DeviceManager] Device found at index \(index), initializing...")
 
                 // Discover identity, match a descriptor, load capabilities.
                 let device = LogiDevice(deviceIndex: index, transport: adapter)
                 try await device.initialize()
+                guard generation == discoveryGeneration, self.transport === transport else { return }
 
                 // Track USB device names for BLE dedup
                 usbDeviceNames.insert(device.name)
@@ -286,6 +301,12 @@ final class DeviceManager {
                 removeDuplicateBLEDevice(name: device.name)
 
                 await finishDiscovery(device)
+                guard generation == discoveryGeneration, self.transport === transport else {
+                    // Capability load may have diverted the wheel; hand it back
+                    // before dropping this device.
+                    await device.resetHiResTarget()
+                    return
+                }
 
                 discovered.append(device)
                 uidToDeviceId["\(receiverUID):\(index)"] = device.id
@@ -306,6 +327,9 @@ final class DeviceManager {
                 continue
             }
         }
+
+        // A rescan may have replaced this session while the last probe ran.
+        guard generation == discoveryGeneration, self.transport === transport else { return }
 
         // Add USB devices to list (keep any existing BLE-only devices)
         for device in discovered {
@@ -366,8 +390,13 @@ final class DeviceManager {
             return
         }
 
+        let generation = discoveryGeneration
         initializingBLEUIDs.insert(info.uid)
-        defer { initializingBLEUIDs.remove(info.uid) }
+        defer {
+            if generation == discoveryGeneration {
+                initializingBLEUIDs.remove(info.uid)
+            }
+        }
 
         debugLog("[DeviceManager] BLE IOKit: initializing \(info.name) PID=\(String(format: "0x%04X", info.pid)) uid=\(info.uid)")
         statusMessage = "Connecting to \(info.name)..."
@@ -385,6 +414,7 @@ final class DeviceManager {
                 params: [0x00, 0x00, 0xBB],
                 timeout: 5.0
             )
+            guard generation == discoveryGeneration, self.transport === transport else { return }
 
             debugLog("[DeviceManager] BLE IOKit: ping succeeded for \(info.name)!")
             logger.info("[DeviceManager] BLE device \(info.name, privacy: .public) responded to ping")
@@ -392,6 +422,7 @@ final class DeviceManager {
             // Discover identity
             let device = LogiDevice(deviceIndex: deviceIndex, transport: adapter)
             try await device.initialize()
+            guard generation == discoveryGeneration, self.transport === transport else { return }
 
             // Re-check dedup after initialization (name might differ from IOKit product name)
             if usbDeviceNames.contains(device.name) {
@@ -400,6 +431,21 @@ final class DeviceManager {
             }
 
             await finishDiscovery(device, pid: info.pid)
+            guard generation == discoveryGeneration, self.transport === transport else {
+                await device.resetHiResTarget()
+                return
+            }
+
+            // A retry can finish after this UID was already initialized (flaky
+            // BLE link). Replace the old instance instead of orphaning it.
+            if let existingId = uidToDeviceId[info.uid] {
+                if let existing = devices.first(where: { $0.id == existingId }) {
+                    await existing.resetHiResTarget()
+                }
+                devices.removeAll { $0.id == existingId }
+                deviceTransportType.removeValue(forKey: existingId)
+                deviceIdToUID.removeValue(forKey: existingId)
+            }
 
             devices.append(device)
             deviceTransportType[device.id] = .ble
@@ -431,7 +477,7 @@ final class DeviceManager {
             debugLog("[DeviceManager] BLE IOKit exclusive access for \(info.name) — transport will retry in background")
             logger.warning("[DeviceManager] BLE device \(info.name, privacy: .public): exclusive access denied — retry in progress")
             isScanning = false
-            statusMessage = "BLE access restricted — retrying..."
+            statusMessage = "BLE access restricted. Retrying..."
         } catch {
             debugLog("[DeviceManager] BLE IOKit init failed for \(info.name): \(error)")
             logger.warning("[DeviceManager] Failed to initialize BLE device \(info.name, privacy: .public): \(error.localizedDescription, privacy: .public)")
@@ -530,6 +576,7 @@ final class DeviceManager {
                         debugLog("[DeviceManager] CB: battery update for \(updatedInfo.name): \(updatedInfo.batteryLevel.map(String.init) ?? "?")%")
                         if let level = updatedInfo.batteryLevel {
                             BatteryNotifier.checkAndNotify(
+                                scope: peripheralId.uuidString,
                                 deviceName: updatedInfo.name,
                                 level: level,
                                 isCharging: false
@@ -585,10 +632,11 @@ final class DeviceManager {
             devices.removeAll { usbDeviceIds.contains($0.id) }
             for id in usbDeviceIds {
                 deviceTransportType.removeValue(forKey: id)
-                if let uid = deviceIdToUID.removeValue(forKey: id) {
-                    uidToDeviceId.removeValue(forKey: uid)
-                }
+                deviceIdToUID.removeValue(forKey: id)
             }
+            // USB entries are keyed "<receiverUID>:<index>" while the reverse
+            // map holds only the receiver UID. Drop by value so none leak.
+            uidToDeviceId = uidToDeviceId.filter { !usbDeviceIds.contains($0.value) }
             usbDeviceNames.removeAll()
             isProbing = false
 
@@ -766,18 +814,9 @@ final class DeviceManager {
             }
         }
 
-        if !wantMonitor {
-            for ble in bleDevices where ble.deviceType == .keyboard {
-                let pref: Bool? = SettingsStore.savedValue(
-                    CapabilityID.micMuteEnabled,
-                    scope: "ble.\(ble.name)"
-                )
-                if pref == true {
-                    wantMonitor = true
-                    break
-                }
-            }
-        }
+        // CoreBluetooth-only devices are read-only: they have no HID++ state to
+        // persist `micmute.enabled`, and the old name-keyed lookup was never
+        // written anywhere. The fallback stays for initialized devices only.
 
         if F9KeyMonitor.shared.isEnabled != wantMonitor {
             debugLog("[DeviceManager] F9KeyMonitor enabled=\(wantMonitor)")
@@ -822,6 +861,7 @@ final class DeviceManager {
                 for device in self.devices {
                     await device.refreshBattery()
                     BatteryNotifier.checkAndNotify(
+                        scope: device.settingScope,
                         deviceName: device.name,
                         level: device.battery.level,
                         isCharging: device.battery.charging
@@ -850,6 +890,13 @@ final class DeviceManager {
     /// Get the transport type for a device.
     func transportType(for device: LogiDevice) -> TransportType? {
         deviceTransportType[device.id]
+    }
+
+    /// Stable transport-side identifier (receiver UID for USB, IOKit UID for
+    /// BLE). Used as the `DeviceID` serial so identity never depends on the
+    /// user-visible device name.
+    func transportUID(for device: LogiDevice) -> String? {
+        deviceIdToUID[device.id]
     }
 
 }

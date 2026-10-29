@@ -10,6 +10,7 @@ struct Fixture {
 let fixtures: [Fixture] = [
     Fixture(id: "root", state: DummyData.initialState()),
     Fixture(id: "onboarding", state: DummyData.onboardingState()),
+    Fixture(id: "onboarding-relaunch", state: DummyData.onboardingRelaunchState()),
     Fixture(id: "root-empty", state: DummyData.emptyState()),
     Fixture(id: "root-scanning", state: DummyData.scanningState()),
     Fixture(id: "root-warning", state: DummyData.warningState()),
@@ -33,6 +34,16 @@ _ = NSApplication.shared
 NSApp.setActivationPolicy(.prohibited)
 
 try FileManager.default.createDirectory(at: outDir, withIntermediateDirectories: true)
+
+/// Drop stale PNGs from previous runs so the directory always reflects the
+/// current fixture list.
+let stale = (try? FileManager.default.contentsOfDirectory(
+    at: outDir,
+    includingPropertiesForKeys: nil
+))?.filter { $0.pathExtension == "png" } ?? []
+for url in stale {
+    try? FileManager.default.removeItem(at: url)
+}
 
 var failures: [String] = []
 

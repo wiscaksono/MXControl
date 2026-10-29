@@ -51,16 +51,30 @@ final class ScrollBehavior: DeviceBehavior {
             var inverted = mode.inverted
             let savedHiRes: Bool? = SettingsStore.savedValue(CapabilityID.hiResEnabled, scope: device.settingScope)
             let savedInverted: Bool? = SettingsStore.savedValue(CapabilityID.hiResInverted, scope: device.settingScope)
+            if let savedInverted {
+                inverted = savedInverted
+            } else if !mode.inverted {
+                // First run: keep the macOS direction so the wheel does not
+                // flip under the user. Once they touch the toggle, the saved
+                // value wins.
+                let key = "com.apple.swipescrolldirection"
+                inverted = UserDefaults.standard.object(forKey: key) == nil
+                    || UserDefaults.standard.bool(forKey: key)
+            }
             if savedHiRes != nil || savedInverted != nil {
                 hiRes = savedHiRes ?? hiRes
-                inverted = savedInverted ?? inverted
                 try await HiResScrollFeature.setWheelMode(
                     transport: device.transport,
                     deviceIndex: device.deviceIndex,
                     featureIndex: idx,
                     target: false,
                     hiRes: hiRes,
-                    inverted: inverted
+                    // Inversion belongs to HID++ target mode; leave the normal
+                    // HID path on the macOS preference.
+                    inverted: false,
+                    // Firmware-owned bytes. Dropping them on reconnect kept
+                    // resetting the wheel tuning to zero.
+                    extensionBytes: device.hiResExtensionBytes
                 )
             }
             device.toggles[CapabilityID.hiResEnabled]?.value = hiRes
@@ -89,6 +103,9 @@ final class ScrollBehavior: DeviceBehavior {
         if let enabled = t[CapabilityID.smoothScrollEnabled]?.value {
             ScrollInterceptor.shared.isEnabled = enabled
         }
+        if let natural = t[CapabilityID.hiResInverted]?.value {
+            ScrollInterceptor.shared.naturalScroll = natural
+        }
         if let speed = d[CapabilityID.smoothScrollSpeed]?.value {
             ScrollInterceptor.shared.speedMultiplier = speed
         }
@@ -111,7 +128,6 @@ final class ScrollBehavior: DeviceBehavior {
     /// matches the behaviour that worked before the behavior refactor.
     func setTarget(_ enabled: Bool) async {
         guard let idx = device.hiResScrollFeatureIndex else { return }
-        let inverted = device.toggles[CapabilityID.hiResInverted]?.value ?? false
         do {
             try await HiResScrollFeature.setWheelMode(
                 transport: device.transport,
@@ -119,7 +135,10 @@ final class ScrollBehavior: DeviceBehavior {
                 featureIndex: idx,
                 target: enabled,
                 hiRes: true,
-                inverted: inverted,
+                // Direction is applied once in the interceptor for the diverted
+                // path, and once by macOS on the HID path. The device bit must
+                // stay neutral or the wheel flips twice.
+                inverted: false,
                 extensionBytes: device.hiResExtensionBytes
             )
             ScrollInterceptor.shared.hiResActive = enabled

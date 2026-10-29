@@ -28,7 +28,7 @@ snapshot:
 	swift run -c $(CONFIG) Snapshot --out $(SNAPSHOT_DIR)
 
 bundle: build
-	SIGNING_IDENTITY="$(SIGNING_IDENTITY)" ./scripts/bundle.sh ".build/$(CONFIG)/$(APP_NAME)" "$(APP)"
+	SIGNING_IDENTITY="$(SIGNING_IDENTITY)" ./scripts/bundle.sh "$$(swift build -c $(CONFIG) --show-bin-path)/$(APP_NAME)" "$(APP)"
 
 run: bundle
 	open -g "$(APP)"

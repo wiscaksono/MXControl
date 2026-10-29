@@ -75,6 +75,7 @@ public final class USBTransport: HIDTransport, @unchecked Sendable {
 
     /// Queue protecting mutable state (waiters, device refs).
     private let stateQueue = DispatchQueue(label: "com.mxcontrol.usbtransport.state")
+    private let stateQueueKey = DispatchSpecificKey<UInt8>()
 
     /// Pending response waiters. Each waiter also tracks which device UID it targets.
     private var waiters: [ResponseWaiter] = []
@@ -137,12 +138,23 @@ public final class USBTransport: HIDTransport, @unchecked Sendable {
 
     // MARK: - Lifecycle
 
-    public init() {}
+    public init() {
+        stateQueue.setSpecific(key: stateQueueKey, value: 1)
+    }
 
     deinit {
         // Safety net: ensure all IOKit resources (IOHIDManager, open devices, timers,
         // pending waiters) are released if close() was never called explicitly.
         close()
+    }
+
+    /// Run `body` on `stateQueue`, or inline when already on it (deinit can
+    /// drop the last reference from a queue callback).
+    private func onStateQueue<T>(_ body: () throws -> T) rethrows -> T {
+        if DispatchQueue.getSpecific(key: stateQueueKey) != nil {
+            return try body()
+        }
+        return try stateQueue.sync(execute: body)
     }
 
     // MARK: - HIDTransport Protocol
@@ -249,33 +261,35 @@ public final class USBTransport: HIDTransport, @unchecked Sendable {
         }
 
         // Cancel all pending waiters
-        stateQueue.sync {
+        onStateQueue {
             for waiter in waiters {
                 waiter.continuation.resume(throwing: HIDPPError.transportNotOpen)
             }
             waiters.removeAll()
         }
 
-        // Cancel all debounce timers
+        // Debounce items are main-confined; cancel them where they run.
         for (_, task) in removalDebounceTasks {
             task.cancel()
         }
         removalDebounceTasks.removeAll()
-        notifiedDeviceUIDs.removeAll()
 
-        // Cancel all BLE retry timers and clear pending devices
-        for (_, timer) in bleRetryTimers {
-            timer.cancel()
+        // Retry timers fire on stateQueue, so their state is mutated there.
+        onStateQueue {
+            for (_, timer) in bleRetryTimers {
+                timer.cancel()
+            }
+            bleRetryTimers.removeAll()
+            pendingBLEDevices.removeAll()
+            notifiedDeviceUIDs.removeAll()
         }
-        bleRetryTimers.removeAll()
-        pendingBLEDevices.removeAll()
     }
 
     /// Reset BLE device notification state so that `onBLEDeviceMatched` fires again
     /// on the next IOKit re-enumeration. Call this when USB is unplugged and BLE
     /// should take over for devices that were previously on USB.
     public func resetNotifiedBLEDevices() {
-        stateQueue.sync {
+        onStateQueue {
             let bleUIDs = notifiedDeviceUIDs.filter { uid in
                 deviceInfoMap[uid]?.transport == .ble
             }
@@ -285,12 +299,12 @@ public final class USBTransport: HIDTransport, @unchecked Sendable {
             if !bleUIDs.isEmpty {
                 debugLog("[USBTransport] Reset notified BLE UIDs for re-init: \(bleUIDs)")
             }
-        }
-        // Also cancel any active BLE retry timers (they'll be restarted on re-enumeration)
-        for uid in pendingBLEDevices.keys {
-            cancelBLERetry(uid: uid)
-        }
-        stateQueue.sync {
+
+            // Retry timers fire on this queue, so cancel them here.
+            for (_, timer) in bleRetryTimers {
+                timer.cancel()
+            }
+            bleRetryTimers.removeAll()
             pendingBLEDevices.removeAll()
         }
     }
@@ -758,7 +772,9 @@ public final class USBTransport: HIDTransport, @unchecked Sendable {
             if response.isAnyError {
                 if let errorFeatureIndex = response.errorFeatureIndex,
                    let idx = waiters.firstIndex(where: {
-                       $0.deviceIndex == response.deviceIndex && waiterMatchesSender($0)
+                       $0.deviceIndex == response.deviceIndex
+                           && $0.featureIndex == errorFeatureIndex
+                           && waiterMatchesSender($0)
                    })
                 {
                     let waiter = waiters.remove(at: idx)
@@ -893,14 +909,12 @@ public final class USBTransport: HIDTransport, @unchecked Sendable {
 
     /// Start a background timer that periodically retries IOHIDDeviceOpen for a BLE device.
     private func startBLERetryTimer(uid: String) {
-        cancelBLERetry(uid: uid)
-
         let timer = DispatchSource.makeTimerSource(queue: stateQueue)
         timer.schedule(deadline: .now() + bleRetryInterval, repeating: bleRetryInterval)
         timer.setEventHandler { [weak self] in
             guard let self else { return }
             guard let entry = self.pendingBLEDevices[uid] else {
-                self.cancelBLERetry(uid: uid)
+                self.cancelBLERetryLocked(uid: uid)
                 return
             }
 
@@ -908,7 +922,7 @@ public final class USBTransport: HIDTransport, @unchecked Sendable {
             if retryCount > self.bleRetryMaxAttempts {
                 debugLog("[USBTransport] BLE retry exhausted (\(self.bleRetryMaxAttempts) attempts) for uid=\(uid)")
                 logger.warning("[USBTransport] BLE device \(entry.info.name, privacy: .public) retry exhausted after \(self.bleRetryMaxAttempts) attempts")
-                self.cancelBLERetry(uid: uid)
+                self.cancelBLERetryLocked(uid: uid)
                 return
             }
 
@@ -942,13 +956,23 @@ public final class USBTransport: HIDTransport, @unchecked Sendable {
                 }
             }
         }
-        bleRetryTimers[uid] = timer
+        onStateQueue {
+            cancelBLERetryLocked(uid: uid)
+            bleRetryTimers[uid] = timer
+        }
         timer.resume()
         debugLog("[USBTransport] BLE retry timer started for uid=\(uid) (every \(bleRetryInterval)s, max \(bleRetryMaxAttempts) attempts)")
     }
 
-    /// Cancel the retry timer for a BLE device.
+    /// Cancel the retry timer for a BLE device from any thread.
     private func cancelBLERetry(uid: String) {
+        onStateQueue {
+            cancelBLERetryLocked(uid: uid)
+        }
+    }
+
+    /// Cancel the retry timer. Assumes the caller is already on `stateQueue`.
+    private func cancelBLERetryLocked(uid: String) {
         if let timer = bleRetryTimers.removeValue(forKey: uid) {
             timer.cancel()
             debugLog("[USBTransport] BLE retry timer cancelled for uid=\(uid)")

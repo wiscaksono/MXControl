@@ -9,7 +9,7 @@ struct AppStateTests {
 
     @Test func dummyStateHasExpectedDevices() {
         let state = DummyData.initialState()
-        #expect(state.devices.map(\.name) == ["MX Master 3S", "MX Keys Mini", "MX Anywhere 3S"])
+        #expect(state.devices.map(\.name) == ["MX Master 3S", "MX Keys Mini", "Logitech Device"])
         #expect(state.details.count == 2)
         #expect(state.devices.last?.isConnected == false)
         #expect(state.warning == nil)
@@ -23,7 +23,7 @@ struct AppStateTests {
         for device in state.devices {
             #expect((0 ... 100).contains(device.battery.level))
             guard device.isConnected else { continue }
-            let detail = try? #require(state.details[device.id])
+            let detail = state.details[device.id]
             #expect(detail?.device.id == device.id)
             #expect(detail?.sections.isEmpty == false)
         }
@@ -35,13 +35,13 @@ struct AppStateTests {
 
     @Test func settingValueMapsControls() {
         var mouse = DummyData.initialState(route: .device(DummyData.mouseID))
-        #expect(mouse.settingValue("wheel.smartshift") == .bool(true))
-        #expect(mouse.settingValue("pointer.dpi") == .int(1000))
-        #expect(mouse.settingValue("gestures.thumbButton") == .picker(index: 0))
+        #expect(mouse.settingValue("smartshift.active") == .bool(true))
+        #expect(mouse.settingValue("dpi") == .int(1000))
+        #expect(mouse.settingValue("smartshift.wheel_mode") == .picker(index: 0))
         #expect(mouse.settingValue("pointer.rate") == nil)
 
-        mouse.setSlider("pointer.dpi", to: 1200)
-        #expect(mouse.settingValue("pointer.dpi") == .int(1200))
+        mouse.setSlider("dpi", to: 1200)
+        #expect(mouse.settingValue("dpi") == .int(1200))
     }
 
     @Test func scanCycleReplacesDevices() {
@@ -61,16 +61,16 @@ struct AppStateTests {
 
     @Test func toggleFlipsSetting() {
         var state = DummyData.initialState(route: .device(DummyData.mouseID))
-        #expect(control(state, "wheel.smartshift") == .toggle(isOn: true))
-        state.toggleItem("wheel.smartshift")
-        #expect(control(state, "wheel.smartshift") == .toggle(isOn: false))
-        state.toggleItem("wheel.smartshift")
-        #expect(control(state, "wheel.smartshift") == .toggle(isOn: true))
+        #expect(control(state, "smartshift.active") == .toggle(isOn: true))
+        state.toggleItem("smartshift.active")
+        #expect(control(state, "smartshift.active") == .toggle(isOn: false))
+        state.toggleItem("smartshift.active")
+        #expect(control(state, "smartshift.active") == .toggle(isOn: true))
     }
 
     @Test func toggleOnRootRouteIsNoOp() {
         var state = DummyData.initialState()
-        state.toggleItem("wheel.smartshift")
+        state.toggleItem("smartshift.active")
         #expect(state == DummyData.initialState())
     }
 
@@ -82,12 +82,12 @@ struct AppStateTests {
 
     @Test func sliderClampsToRange() {
         var state = DummyData.initialState(route: .device(DummyData.mouseID))
-        state.setSlider("pointer.dpi", to: 99999)
-        #expect(control(state, "pointer.dpi") == .slider(
+        state.setSlider("dpi", to: 99999)
+        #expect(control(state, "dpi") == .slider(
             SliderSpec(value: 8000, range: 200 ... 8000, step: 50, unit: "DPI")
         ))
-        state.setSlider("pointer.dpi", to: -10)
-        #expect(control(state, "pointer.dpi") == .slider(
+        state.setSlider("dpi", to: -10)
+        #expect(control(state, "dpi") == .slider(
             SliderSpec(value: 200, range: 200 ... 8000, step: 50, unit: "DPI")
         ))
     }
@@ -108,32 +108,55 @@ struct AppStateTests {
         #expect(SliderSpec(value: 2.5, range: 0 ... 5, step: 0.5, unit: "").displayValue == "2.5")
     }
 
+    @Test func sliderDisplayValueHandlesFineSteps() {
+        // 0.01 steps used to round to one decimal and show "0.9".
+        #expect(SliderSpec(value: 0.92, range: 0.80 ... 0.98, step: 0.01)
+            .displayValue == "0.92")
+        #expect(SliderSpec(value: 0.98, range: 0.80 ... 0.98, step: 0.01)
+            .displayValue == "0.98")
+        // Multipliers attach directly, units get one space.
+        #expect(SliderSpec(value: 3, range: 1 ... 10, step: 0.5, unit: "x")
+            .displayValue == "3.0x")
+        #expect(SliderSpec(value: 120, range: 20 ... 240, step: 1, unit: "ms")
+            .displayValue == "120 ms")
+    }
+
+    @Test func finishScanFallsBackToRootWhenDeviceDisappears() {
+        var state = DummyData.initialState(route: .device(DummyData.mouseID))
+        let devices = DummyData.devices.filter { $0.id != DummyData.mouseID }
+        let details = DummyData.details.filter { $0.key != DummyData.mouseID }
+
+        state.finishScan(devices: devices, details: details)
+
+        #expect(state.route == .root)
+    }
+
     @Test func pickerClampsInvalidIndex() {
         var keyboard = DummyData.initialState(route: .device(DummyData.keyboardID))
-        keyboard.selectOption("backlight.toggle", index: 99)
+        keyboard.selectOption("backlight.enabled", index: 99)
         // Not a picker: stays a toggle.
-        #expect(control(keyboard, "backlight.toggle") == .toggle(isOn: true))
+        #expect(control(keyboard, "backlight.enabled") == .toggle(isOn: true))
 
         var mouse = DummyData.initialState(route: .device(DummyData.mouseID))
-        mouse.selectOption("gestures.thumbButton", index: 99)
-        #expect(control(mouse, "gestures.thumbButton") == .picker(
-            options: ["Mission Control", "App Exposé", "None"],
-            selectedIndex: 2
+        mouse.selectOption("smartshift.wheel_mode", index: 99)
+        #expect(control(mouse, "smartshift.wheel_mode") == .picker(
+            options: ["Ratchet", "Free Spin"],
+            selectedIndex: 1
         ))
 
-        mouse.selectOption("gestures.thumbButton", index: -3)
-        #expect(control(mouse, "gestures.thumbButton") == .picker(
-            options: ["Mission Control", "App Exposé", "None"],
+        mouse.selectOption("smartshift.wheel_mode", index: -3)
+        #expect(control(mouse, "smartshift.wheel_mode") == .picker(
+            options: ["Ratchet", "Free Spin"],
             selectedIndex: 0
         ))
     }
 
     @Test func pickerSelectsValidIndex() {
         var state = DummyData.initialState(route: .device(DummyData.mouseID))
-        state.selectOption("gestures.thumbButton", index: 2)
-        #expect(control(state, "gestures.thumbButton") == .picker(
-            options: ["Mission Control", "App Exposé", "None"],
-            selectedIndex: 2
+        state.selectOption("smartshift.wheel_mode", index: 1)
+        #expect(control(state, "smartshift.wheel_mode") == .picker(
+            options: ["Ratchet", "Free Spin"],
+            selectedIndex: 1
         ))
     }
 

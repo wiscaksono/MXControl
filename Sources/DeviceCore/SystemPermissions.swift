@@ -13,7 +13,7 @@ public struct SystemPermissions: PermissionsService {
     public func status() async -> PermissionState {
         PermissionState(
             inputMonitoring: Self.inputMonitoring,
-            accessibility: AXIsProcessTrusted() ? .granted : .denied,
+            accessibility: Self.accessibility,
             bluetooth: Self.bluetooth
         )
     }
@@ -24,6 +24,9 @@ public struct SystemPermissions: PermissionsService {
             _ = CGRequestListenEventAccess()
             _ = IOHIDRequestAccess(kIOHIDRequestTypeListenEvent)
         case .accessibility:
+            // Registers the app in the Accessibility list as a side effect.
+            // Without this call a fresh install may not appear there at all.
+            UserDefaults.standard.set(true, forKey: Self.accessibilityRequestedKey)
             let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
             _ = AXIsProcessTrustedWithOptions(options)
         case .bluetooth:
@@ -31,6 +34,16 @@ public struct SystemPermissions: PermissionsService {
                 BluetoothPrompter.shared.prompt()
             }
         }
+    }
+
+    private static let accessibilityRequestedKey = "accessibilityRequested"
+
+    private static var accessibility: PermissionStatus {
+        if AXIsProcessTrusted() { return .granted }
+        // AX trust is live, so this only distinguishes "never asked" from
+        // "asked and denied". It lets the first step show Enable instead of
+        // sending the user to a Settings list the app has not joined yet.
+        return UserDefaults.standard.bool(forKey: accessibilityRequestedKey) ? .denied : .unknown
     }
 
     private static var inputMonitoring: PermissionStatus {
@@ -42,10 +55,10 @@ public struct SystemPermissions: PermissionsService {
         case kIOHIDAccessTypeGranted:
             return .granted
         case kIOHIDAccessTypeDenied:
-            // Granted in Settings but not for this process: needs a relaunch.
-            return .denied
+            // TCC has the grant but this process still cannot listen.
+            return CGPreflightListenEventAccess() ? .needsRelaunch : .denied
         default:
-            return CGPreflightListenEventAccess() ? .denied : .unknown
+            return CGPreflightListenEventAccess() ? .needsRelaunch : .unknown
         }
     }
 

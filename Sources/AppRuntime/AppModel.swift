@@ -1,4 +1,5 @@
 import AppCore
+import DeviceCore
 import Foundation
 import Observation
 
@@ -32,10 +33,13 @@ public final class AppModel {
             state.route = .root
         case let .toggle(itemID):
             state.toggleItem(itemID)
+            pushChange(itemID)
         case let .setSlider(itemID, value):
             state.setSlider(itemID, to: value)
+            pushChange(itemID)
         case let .selectOption(itemID, index):
             state.selectOption(itemID, index: index)
+            pushChange(itemID)
         case .activate:
             break // action rows are confirmed by the controller first
         case .resetAll:
@@ -64,8 +68,25 @@ public final class AppModel {
             state.finishScan(devices: snapshot.devices, details: snapshot.details)
         }
     }
+
+    /// Optimistic UI: the local state already changed, so forward the same
+    /// value to the device and adopt whatever the service reports back.
+    private func pushChange(_ itemID: String) {
+        guard case let .device(deviceID) = state.route,
+              let value = state.settingValue(itemID) else { return }
+
+        let change = DeviceChange(deviceID: deviceID, itemID: itemID, value: value)
+        Task { @MainActor in
+            guard let snapshot = await service.apply(change) else { return }
+            state.devices = snapshot.devices
+            state.details = snapshot.details
+        }
+    }
 }
 
 public extension AppModel {
-    static let shared = AppModel()
+    static let shared = AppModel(
+        state: AppState(general: DummyData.generalSettings, version: DummyData.version),
+        service: HIDPPDeviceService()
+    )
 }

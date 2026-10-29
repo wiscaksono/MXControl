@@ -4,3 +4,5 @@
 --wraparguments before-first
 --wrapparameters before-first
 --stripunusedargs closure-only
+
+--exclude Sources/HIDPP,Sources/DeviceCore,Tests/HIDPPTests,Tests/DeviceCoreTests

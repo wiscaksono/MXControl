@@ -71,6 +71,22 @@ public struct AppState: Equatable, Sendable {
         }
     }
 
+    /// Typed value of one setting, used to forward edits to a device service.
+    public func settingValue(_ itemID: String) -> SettingValue? {
+        let item = sections.flatMap(\.items).first { $0.id == itemID }
+        guard let control = item?.control else { return nil }
+        switch control {
+        case let .toggle(isOn):
+            return .bool(isOn)
+        case let .slider(spec):
+            return spec.step >= 1 ? .int(Int(spec.value)) : .double(spec.value)
+        case let .picker(_, selectedIndex):
+            return .picker(index: selectedIndex)
+        case .action, .info:
+            return nil
+        }
+    }
+
     public mutating func toggleItem(_ id: String) {
         updateItem(id) { item in
             guard case let .toggle(isOn) = item.control else { return }

@@ -1,0 +1,65 @@
+import Foundation
+import HIDPP
+
+/// Human-readable names for HID++ 2.0 feature IDs (log summaries).
+enum DeviceRegistry {
+
+    // MARK: - Known Feature Names
+
+    /// Human-readable names for common HID++ 2.0 feature IDs.
+    static let featureNames: [UInt16: String] = [
+        0x0000: "Root",
+        0x0001: "FeatureSet",
+        0x0003: "FirmwareInfo",
+        0x0005: "DeviceNameType",
+        0x0007: "DeviceFriendlyName",
+        0x0008: "SwitchAndKeepAlive",
+        0x0020: "ConfigChange",
+        0x1000: "BatteryLevelStatus",
+        0x1001: "BatteryVoltage",
+        0x1004: "UnifiedBattery",
+        0x1300: "LEDControl",
+        0x1814: "ChangeHost",
+        0x1815: "HostsInfos",
+        0x1B04: "SpecialKeysV4",
+        0x1B10: "ControlList",
+        0x1D4B: "WirelessStatus",
+        0x1E00: "EnableHiddenFeatures",
+        0x1F20: "ADCMeasurement",
+        0x1981: "KeyboardBacklightV1",
+        0x1982: "BacklightV2",
+        0x1983: "KeyboardBacklightV3",
+        0x19B0: "HapticFeedback",
+        0x2110: "SmartShift",
+        0x2111: "SmartShiftV2",
+        0x2121: "HiResWheel",
+        0x2130: "RatchetWheel",
+        0x2150: "Thumbwheel",
+        0x2201: "AdjustableDPI",
+        0x2202: "ExtendedAdjustableDPI",
+        0x2205: "PointerMotionScaling",
+        0x2230: "AngleSnapping",
+        0x2240: "SurfaceTuning",
+        0x40A0: "FnInversionV0",
+        0x40A2: "FnInversionV2",
+        0x40A3: "FnInversionV3",
+        0x4220: "LockKeyState",
+        0x4521: "DisableKeys",
+        0x4522: "DisableKeysByUsage",
+        0x4531: "MultiPlatform",
+        0x4540: "KBLayout",
+        0x8060: "ReportRate",
+        0x8061: "ExtendedReportRate",
+        0x8070: "ColorLEDEffects",
+        0x8071: "RGBEffects",
+        0x8100: "OnboardProfiles",
+        0x00C0: "DFUControlV0",
+        0x00C3: "DFUControlV3",
+        0x00D0: "DFU",
+    ]
+
+    /// Get human-readable name for a feature ID, or hex string if unknown.
+    static func featureName(for id: UInt16) -> String {
+        featureNames[id] ?? String(format: "0x%04X", id)
+    }
+}

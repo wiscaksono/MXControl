@@ -15,8 +15,13 @@ let package = Package(
         ),
         .target(name: "AppCore"),
         .target(
+            name: "DeviceCore",
+            dependencies: ["HIDPP", "AppCore"],
+            path: "Sources/DeviceCore"
+        ),
+        .target(
             name: "AppRuntime",
-            dependencies: ["AppCore"],
+            dependencies: ["AppCore", "DeviceCore"],
             swiftSettings: [.defaultIsolation(MainActor.self)]
         ),
         .target(
@@ -40,6 +45,11 @@ let package = Package(
             name: "AppRuntimeTests",
             dependencies: ["AppRuntime", "AppCore"],
             swiftSettings: [.defaultIsolation(MainActor.self)]
+        ),
+        .testTarget(
+            name: "DeviceCoreTests",
+            dependencies: ["DeviceCore", "HIDPP", "AppCore"],
+            path: "Tests/DeviceCoreTests"
         ),
     ]
 )

@@ -33,6 +33,17 @@ struct AppStateTests {
         }
     }
 
+    @Test func settingValueMapsControls() {
+        var mouse = DummyData.initialState(route: .device(DummyData.mouseID))
+        #expect(mouse.settingValue("wheel.smartshift") == .bool(true))
+        #expect(mouse.settingValue("pointer.dpi") == .int(1000))
+        #expect(mouse.settingValue("gestures.thumbButton") == .picker(index: 0))
+        #expect(mouse.settingValue("pointer.rate") == nil)
+
+        mouse.setSlider("pointer.dpi", to: 1200)
+        #expect(mouse.settingValue("pointer.dpi") == .int(1200))
+    }
+
     @Test func scanCycleReplacesDevices() {
         var state = DummyData.warningState()
         state.devices = []

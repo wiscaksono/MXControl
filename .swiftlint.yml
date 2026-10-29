@@ -1,6 +1,10 @@
 excluded:
   - .build
   - build
+  - Sources/HIDPP
+  - Sources/DeviceCore
+  - Tests/HIDPPTests
+  - Tests/DeviceCoreTests
 
 disabled_rules:
   - line_length

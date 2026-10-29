@@ -12,9 +12,39 @@ public struct DeviceSnapshot: Equatable, Sendable {
     }
 }
 
+/// Typed value for a setting change heading to hardware.
+public enum SettingValue: Equatable, Sendable {
+    case bool(Bool)
+    case int(Int)
+    case double(Double)
+    case picker(index: Int)
+}
+
+/// One edit the UI wants applied to a device.
+public struct DeviceChange: Equatable, Sendable {
+    public var deviceID: DeviceID
+    public var itemID: String
+    public var value: SettingValue
+
+    public init(deviceID: DeviceID, itemID: String, value: SettingValue) {
+        self.deviceID = deviceID
+        self.itemID = itemID
+        self.value = value
+    }
+}
+
 /// The seam between the UI layer and real hardware. Views never import HID++.
 public protocol DeviceService: Sendable {
     func scan() async -> DeviceSnapshot
+    /// Returns a fresh snapshot after the write, when the service can provide
+    /// one. Dummy services return nil.
+    func apply(_ change: DeviceChange) async -> DeviceSnapshot?
+}
+
+public extension DeviceService {
+    func apply(_ change: DeviceChange) async -> DeviceSnapshot? {
+        nil
+    }
 }
 
 /// In-memory service backed by the fixture data. Used by the app until the

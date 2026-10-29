@@ -12,6 +12,28 @@ struct AppModelTests {
         }
     }
 
+    private actor RecordingService: DeviceService {
+        nonisolated let snapshot: DeviceSnapshot
+        private var changes: [DeviceChange] = []
+
+        init(snapshot: DeviceSnapshot) {
+            self.snapshot = snapshot
+        }
+
+        nonisolated func scan() async -> DeviceSnapshot {
+            snapshot
+        }
+
+        func apply(_ change: DeviceChange) async -> DeviceSnapshot? {
+            changes.append(change)
+            return nil
+        }
+
+        func recorded() -> [DeviceChange] {
+            changes
+        }
+    }
+
     private func makeModel(state: AppState) -> AppModel {
         let snapshot = DeviceSnapshot(devices: DummyData.devices, details: DummyData.details)
         return AppModel(state: state, service: StubService(snapshot: snapshot), scanDelay: .zero)
@@ -45,5 +67,25 @@ struct AppModelTests {
         model.handle(.resetAll)
         #expect(model.state.route == .general)
         #expect(model.state.devices.count == 3)
+    }
+
+    @Test func toggleForwardsChangeToService() async throws {
+        let snapshot = DeviceSnapshot(devices: DummyData.devices, details: DummyData.details)
+        let service = RecordingService(snapshot: snapshot)
+        let model = AppModel(
+            state: DummyData.initialState(route: .device(DummyData.mouseID)),
+            service: service,
+            scanDelay: .zero
+        )
+
+        model.handle(.toggle(itemID: "wheel.smartshift"))
+        #expect(model.state.settingValue("wheel.smartshift") == .bool(false))
+
+        try await Task.sleep(for: .milliseconds(50))
+        let changes = await service.recorded()
+        #expect(changes.count == 1)
+        #expect(changes.first?.deviceID == DummyData.mouseID)
+        #expect(changes.first?.itemID == "wheel.smartshift")
+        #expect(changes.first?.value == .bool(false))
     }
 }

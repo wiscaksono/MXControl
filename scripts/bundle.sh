@@ -18,6 +18,7 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
 cp "$BIN" "$APP/Contents/MacOS/$EXECUTABLE"
 cp scripts/Info.plist "$APP/Contents/Info.plist"
+cp Sources/Resources/logi-logo.png "$APP/Contents/Resources/logi-logo.png"
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 
 # No nested bundles yet, so one ad-hoc signature is enough. When helpers or

@@ -6,7 +6,8 @@ enum Metric {
     static let groupSpacing: CGFloat = 14
     static let rowPadding: CGFloat = 10
     static let cornerRadius: CGFloat = 10
-    static let headerHeight: CGFloat = 40
+    static let controlCornerRadius: CGFloat = 6
+    static let headerHeight: CGFloat = 30
     static let footerHeight: CGFloat = 30
     static let hairlineHeight: CGFloat = 1
 }

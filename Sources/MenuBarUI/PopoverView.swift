@@ -70,13 +70,8 @@ public struct PopoverView: View {
     // MARK: - Header
 
     private var header: some View {
-        HStack(spacing: 8) {
-            if state.route == .root {
-                Image(systemName: "computermouse.fill")
-                    .font(.body)
-                    .foregroundStyle(.secondary)
-                    .frame(width: 20)
-            } else {
+        HStack(spacing: 2) {
+            if state.route != .root {
                 Button {
                     onAction(.back)
                 } label: {
@@ -94,7 +89,8 @@ public struct PopoverView: View {
 
             headerAccessory
         }
-        .padding(.horizontal, 10)
+        .padding(.leading, state.route == .root ? 10 : 4)
+        .padding(.trailing, 4)
         .frame(height: Metric.headerHeight)
         .focusEffectDisabled()
     }
@@ -118,11 +114,7 @@ public struct PopoverView: View {
             }
             .buttonStyle(IconButtonStyle())
             .help("Settings")
-        case .device:
-            if let detail = state.activeDetail {
-                BatteryPill(battery: detail.device.battery)
-            }
-        case .general:
+        case .device, .general:
             EmptyView()
         }
     }
@@ -215,7 +207,7 @@ public struct PopoverView: View {
             .buttonStyle(IconButtonStyle())
             .help("Quit")
         }
-        .padding(.horizontal, 10)
+        .padding(.horizontal, 4)
         .frame(height: Metric.footerHeight)
         .focusEffectDisabled()
     }

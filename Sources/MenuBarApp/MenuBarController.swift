@@ -19,11 +19,7 @@ final class MenuBarController: NSObject {
     private func configureStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = item.button {
-            let image = NSImage(
-                systemSymbolName: "computermouse.fill",
-                accessibilityDescription: "MenuBarApp"
-            )
-            image?.isTemplate = true
+            let image = BrandIcon.menuBar
             button.image = image
             button.target = self
             button.action = #selector(togglePopover(_:))

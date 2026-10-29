@@ -154,11 +154,9 @@ struct BatteryRing: View {
                 .trim(from: 0, to: max(0.03, Double(battery.level) / 100))
                 .stroke(battery.band.ringTint, style: StrokeStyle(lineWidth: 3, lineCap: .round))
                 .rotationEffect(.degrees(-90))
-            if battery.isCharging {
-                Image(systemName: "bolt.fill")
-                    .font(.system(size: size * 0.3, weight: .bold))
-                    .foregroundStyle(battery.band.ringTint)
-            }
+            Image(systemName: battery.isCharging ? "bolt.fill" : battery.symbolName)
+                .font(.system(size: size * 0.26, weight: .semibold))
+                .foregroundStyle(battery.band.ringTint)
         }
         .frame(width: size, height: size)
     }
@@ -190,25 +188,6 @@ struct BatteryPill: View {
     }
 }
 
-struct TransportBadge: View {
-    let transport: TransportKind
-
-    private var tint: Color {
-        transport == .ble ? .blue : .secondary
-    }
-
-    var body: some View {
-        Text(transport.label)
-            .font(.caption2)
-            .fontWeight(.semibold)
-            .tracking(0.3)
-            .foregroundStyle(tint)
-            .padding(.horizontal, 5)
-            .padding(.vertical, 1.5)
-            .background(Capsule().fill(tint.opacity(0.12)))
-    }
-}
-
 struct IconButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
@@ -218,7 +197,7 @@ struct IconButtonStyle: ButtonStyle {
                 .secondary)
             .frame(width: 28, height: 24)
             .background(
-                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                RoundedRectangle(cornerRadius: Metric.controlCornerRadius, style: .continuous)
                     .fill(Color.primary.opacity(configuration.isPressed ? 0.08 : 0))
             )
             .contentShape(Rectangle())
@@ -233,7 +212,7 @@ struct FilledButtonStyle: ButtonStyle {
             .padding(.horizontal, 12)
             .frame(height: 26)
             .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                RoundedRectangle(cornerRadius: Metric.controlCornerRadius, style: .continuous)
                     .fill(Color.accentColor.opacity(configuration.isPressed ? 0.75 : 1))
             )
             .contentShape(Rectangle())

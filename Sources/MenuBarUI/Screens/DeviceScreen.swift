@@ -44,8 +44,6 @@ struct DeviceScreen: View {
             }
 
             Spacer(minLength: 0)
-
-            TransportBadge(transport: detail.device.transport)
         }
         .padding(10)
         .background(

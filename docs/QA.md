@@ -39,6 +39,8 @@ everything else is covered by `make verify`.
 
 ## Known gaps
 
+- Natural scrolling inverts the HID++ events we synthesize, so it is disabled
+  while smooth scrolling is off (the wheel then follows the macOS setting).
 - Update check rows are placeholders; there is no updater yet.
 - BLE devices discovered through CoreBluetooth are read-only (battery/info).
 - Device names are used only for display; settings keys use descriptor + unit.

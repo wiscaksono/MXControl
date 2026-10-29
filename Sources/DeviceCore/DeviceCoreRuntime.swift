@@ -230,6 +230,19 @@ public final class DeviceCoreRuntime {
 
     private func item(for capability: CapabilityID, on device: LogiDevice) -> SettingItem? {
         if let state = device.toggles[capability] {
+            // Natural scrolling inverts the events we synthesize, so it has no
+            // meaning while the wheel is on the macOS HID path.
+            if capability == .hiResInverted {
+                let smoothScrolling = device.toggles[CapabilityID.smoothScrollEnabled]?.value ?? true
+                return SettingItem(
+                    id: capability.rawValue,
+                    title: state.label,
+                    subtitle: smoothScrolling ? state.subtitle : "Requires smooth scrolling",
+                    control: .toggle(isOn: state.value),
+                    isEnabled: smoothScrolling
+                )
+            }
+
             return SettingItem(
                 id: capability.rawValue,
                 title: state.label,

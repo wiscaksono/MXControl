@@ -604,12 +604,15 @@ enum CapabilityHandlers {
 
             case .hiResEnabled, .hiResInverted:
                 guard let idx = device.hiResScrollFeatureIndex else { return }
-                let hiRes = device.toggles[CapabilityID.hiResEnabled]?.value ?? true
+                let target = device.toggles[CapabilityID.smoothScrollEnabled]?.value ?? false
+                // Diverting the wheel at low resolution gives the smoother 30px
+                // ticks. Keep hi-res on whenever the HID++ target is active.
+                let hiRes = target ? true : (device.toggles[CapabilityID.hiResEnabled]?.value ?? true)
                 let inverted = device.toggles[CapabilityID.hiResInverted]?.value ?? false
                 try await HiResScrollFeature.setWheelMode(
                     transport: device.transport, deviceIndex: device.deviceIndex,
                     featureIndex: idx,
-                    target: device.toggles[CapabilityID.smoothScrollEnabled]?.value ?? false,
+                    target: target,
                     hiRes: hiRes, inverted: inverted
                 )
                 SettingsStore.saveValue(hiRes, CapabilityID.hiResEnabled, scope: device.settingScope)

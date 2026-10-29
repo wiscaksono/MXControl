@@ -14,6 +14,7 @@ public final class AppModel {
     private let refreshInterval: Duration
     private var scanTask: Task<Void, Never>?
     private var refreshTask: Task<Void, Never>?
+    private var isUIActive = false
 
     public init(
         state: AppState = DummyData.initialState(),
@@ -113,6 +114,18 @@ public final class AppModel {
         }
     }
 
+    /// Polling only matters while the popover is visible; paused polling keeps
+    /// the device quiet when the app sits in the menu bar.
+    public func setUIActive(_ active: Bool) {
+        isUIActive = active
+        guard active else { return }
+
+        Task { @MainActor in
+            guard let snapshot = await service.refresh() else { return }
+            adoptIfChanged(snapshot)
+        }
+    }
+
     /// Battery and connection state drift while the popover is closed, and
     /// devices finish initializing after the first snapshot.
     private func startRefreshLoop() {
@@ -121,17 +134,20 @@ public final class AppModel {
                 guard let interval = self?.refreshInterval else { return }
                 try? await Task.sleep(for: interval)
                 guard let self, !Task.isCancelled else { return }
-                guard let snapshot = await service.refresh() else { continue }
-
-                let current = DeviceSnapshot(
-                    devices: state.devices,
-                    details: state.details,
-                    warning: state.warning
-                )
-                guard snapshot != current else { continue }
-                adopt(snapshot)
+                guard isUIActive, let snapshot = await service.refresh() else { continue }
+                adoptIfChanged(snapshot)
             }
         }
+    }
+
+    private func adoptIfChanged(_ snapshot: DeviceSnapshot) {
+        let current = DeviceSnapshot(
+            devices: state.devices,
+            details: state.details,
+            warning: state.warning
+        )
+        guard snapshot != current else { return }
+        adopt(snapshot)
     }
 }
 

@@ -10,6 +10,10 @@ struct AppModelTests {
         nonisolated func scan() async -> DeviceSnapshot {
             snapshot
         }
+
+        nonisolated func refresh() async -> DeviceSnapshot? {
+            snapshot
+        }
     }
 
     private actor RecordingService: DeviceService { nonisolated let snapshot: DeviceSnapshot
@@ -128,5 +132,32 @@ struct AppModelDisconnectionTests {
         }
         let after = await model.state.devices.map(\.id)
         #expect(after == ids)
+    }
+}
+
+struct AppModelUIActivityTests {
+    private struct FullService: DeviceService {
+        nonisolated func scan() async -> DeviceSnapshot {
+            DeviceSnapshot()
+        }
+
+        nonisolated func refresh() async -> DeviceSnapshot? {
+            DeviceSnapshot(devices: DummyData.devices, details: DummyData.details)
+        }
+    }
+
+    @Test func openingThePopoverSyncsImmediately() async throws {
+        let model = await AppModel(
+            state: DummyData.emptyState(),
+            service: FullService(),
+            scanDelay: .zero
+        )
+        #expect(await model.state.devices.isEmpty)
+
+        await MainActor.run {
+            model.setUIActive(true)
+        }
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(await model.state.devices.count == 3)
     }
 }

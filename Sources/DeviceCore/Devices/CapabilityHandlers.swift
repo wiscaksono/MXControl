@@ -156,6 +156,51 @@ enum CapabilityHandlers {
         }
     }
 
+    /// Re-read the wheel mode from the device without writing anything back.
+    /// The physical mode-shift button changes this behind our back, so the UI
+    /// has to poll it while the popover is open.
+    static func refreshWheelMode(on device: LogiDevice) async {
+        do {
+            let fid = try await smartShiftFeatureId(on: device)
+            let idx = try await device.featureIndexCache.resolve(
+                featureId: fid,
+                transport: device.transport,
+                deviceIndex: device.deviceIndex
+            )
+
+            let mode: SmartShiftFeature.WheelMode
+            var active = true
+
+            if fid == SmartShiftFeature.featureId {
+                let status = try await SmartShiftFeature.getStatus(
+                    transport: device.transport, deviceIndex: device.deviceIndex, featureIndex: idx
+                )
+                mode = status.wheelMode
+                active = isSmartShiftActive(status.autoDisengage)
+                if status.torque > 0 {
+                    device.ints[CapabilityID.smartShiftTorque]?.value = status.torque
+                }
+            } else {
+                let status = try await SmartShiftV1Feature.getStatus(
+                    transport: device.transport, deviceIndex: device.deviceIndex, featureIndex: idx
+                )
+                mode = status.wheelMode
+                active = isSmartShiftActive(status.autoDisengage)
+            }
+
+            device.segmented[CapabilityID.smartShiftWheelMode]?.selected = Int(mode.rawValue)
+            device.toggles[CapabilityID.smartShiftActive]?.value = active
+            ScrollInterceptor.shared.wheelMode = mode == .freeSpin ? .freeSpin : .ratchet
+
+            // The physical button wins: keep saved prefs in sync so a reconnect
+            // does not restore the previous mode.
+            SettingsStore.saveValue(Int(mode.rawValue), CapabilityID.smartShiftWheelMode, scope: device.settingScope)
+            SettingsStore.saveValue(active, CapabilityID.smartShiftActive, scope: device.settingScope)
+        } catch {
+            debugLog("[CapabilityHandlers] Wheel mode refresh failed: \(error)")
+        }
+    }
+
     // MARK: - Device-backed Loads
 
     private static func batteryIndex(on device: LogiDevice) async throws -> UInt8 {

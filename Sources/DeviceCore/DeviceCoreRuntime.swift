@@ -82,7 +82,10 @@ public final class DeviceCoreRuntime {
     /// Live connection state, without rediscovering and without extra HID++ IO.
     /// Battery polling stays with the device manager's own timer.
     public func refresh() async -> DeviceSnapshot? {
-        snapshot()
+        for device in manager.devices where device.isInitialized {
+            await CapabilityHandlers.refreshWheelMode(on: device)
+        }
+        return snapshot()
     }
 
     /// Forget every saved preference and let the devices report their defaults.

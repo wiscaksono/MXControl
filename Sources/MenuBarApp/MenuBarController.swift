@@ -6,7 +6,7 @@ import MenuBarUI
 import ServiceManagement
 import SwiftUI
 
-final class MenuBarController: NSObject {
+final class MenuBarController: NSObject, NSPopoverDelegate {
     private let model: AppModel
     private let popover = NSPopover()
     private var statusItem: NSStatusItem?
@@ -33,6 +33,7 @@ final class MenuBarController: NSObject {
     private func configurePopover() {
         popover.behavior = .transient
         popover.animates = false
+        popover.delegate = self
         popover.contentSize = NSSize(
             width: PopoverView.preferredWidth,
             height: PopoverView.chromeHeight + PopoverSizing.fallbackViewport
@@ -49,6 +50,14 @@ final class MenuBarController: NSObject {
         } else {
             showPopover()
         }
+    }
+
+    func popoverDidShow(_ notification: Notification) {
+        model.setUIActive(true)
+    }
+
+    func popoverDidClose(_ notification: Notification) {
+        model.setUIActive(false)
     }
 
     private func showPopover() {

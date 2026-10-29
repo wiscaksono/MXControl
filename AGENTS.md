@@ -1,0 +1,37 @@
+# AGENTS.md
+
+Menubar app: SwiftPM, macOS 14+, `NSStatusItem` + `NSPopover` shell hosting
+SwiftUI. Current UI recreates MXControl with dummy data.
+
+## Verify
+
+Run `make verify` (build + test + selfcheck + snapshot + lint). That is the only
+verification path.
+
+- Do not use `osascript`, `screencapture`, `cliclick`, or any GUI automation.
+- Do not launch the app unless the user asks. `make run` is for the human.
+- `make dev` rebuilds and relaunches on save. It is a human workflow; agents
+  must not run it.
+- For UI changes, run `make snapshot` and read the PNGs in `build/snapshots/`.
+  Snapshots verify drawing only, not interaction or focus behavior.
+- When something needs a real click, write the manual steps for the user
+  instead of doing them.
+
+## Boundaries
+
+- `AppCore` has no SwiftUI/AppKit imports. Models and dummy data live there.
+- Views take `AppState` and emit `UIAction`. No view reads a service or device.
+- `MenuBarApp` owns state mutation (`AppModel`) and process-level code.
+- New screen or state: add a fixture in `Sources/Snapshot/main.swift`.
+- Scroll viewport height is measured from content and capped by screen height.
+  Keep the `viewport ok` guard in the snapshot target; it catches the
+  zero-height collapse.
+- Controls must be custom-drawn SwiftUI shapes. AppKit-backed controls
+  (`Toggle`, `Slider`, `Picker`, `.borderedProminent`) do not render in
+  `ImageRenderer`, so snapshots would not match the real UI.
+
+## Style
+
+Existing conventions: one type per file, `@Observable` + `@MainActor` for app
+state, value types for screens, semantic fonts and shared metrics in
+`DesignTokens.swift`, `swiftformat` before commit.

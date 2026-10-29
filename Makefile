@@ -1,0 +1,68 @@
+CONFIG ?= debug
+APP_NAME := MenuBarApp
+APP := build/$(APP_NAME).app
+SNAPSHOT_DIR := build/snapshots
+
+.PHONY: build test lint format selfcheck snapshot bundle run stop dev verify release install clean
+
+build:
+	swift build -c $(CONFIG)
+
+test:
+	swift test
+
+lint:
+	swiftformat --lint .
+	swiftlint --quiet
+
+format:
+	swiftformat .
+
+selfcheck:
+	swift run -c $(CONFIG) $(APP_NAME) --self-check
+
+snapshot:
+	swift run -c $(CONFIG) Snapshot --out $(SNAPSHOT_DIR)
+
+bundle: build
+	./scripts/bundle.sh ".build/$(CONFIG)/$(APP_NAME)" "$(APP)"
+
+run: bundle
+	open -g "$(APP)"
+
+stop:
+	@pkill -x "$(APP_NAME)" || true
+
+# Rebuild, relaunch, repeat. Watch mode for the human; agents should use verify.
+dev:
+	@command -v fswatch >/dev/null 2>&1 || { echo "fswatch required: brew install fswatch"; exit 1; }
+	@$(MAKE) --no-print-directory bundle
+	@echo "watching Sources/, Package.swift, scripts/ (Ctrl-C to stop)"
+	@fswatch -o -l 0.4 Sources Package.swift scripts/Info.plist scripts/bundle.sh | while read -r _; do \
+		if $(MAKE) --no-print-directory bundle > build/dev-build.log 2>&1; then \
+			pkill -x "$(APP_NAME)" >/dev/null 2>&1 || true; \
+			for i in $$(seq 1 30); do \
+				pgrep -x "$(APP_NAME)" >/dev/null 2>&1 || break; \
+				sleep 0.1; \
+			done; \
+			open -g "$(APP)"; \
+			printf 'reloaded %s\n' "$$(date +%H:%M:%S)"; \
+		else \
+			printf 'build failed %s\n' "$$(date +%H:%M:%S)"; \
+			tail -n 20 build/dev-build.log; \
+		fi; \
+	done
+
+verify: build test selfcheck snapshot lint
+
+release:
+	swift build -c release --arch arm64 --arch x86_64
+	./scripts/bundle.sh "$$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)/$(APP_NAME)" "$(APP)"
+
+install: release
+	rm -rf "/Applications/$(APP_NAME).app"
+	cp -R "$(APP)" /Applications/
+	open -g "/Applications/$(APP_NAME).app"
+
+clean:
+	rm -rf .build build

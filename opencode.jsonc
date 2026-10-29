@@ -1,0 +1,8 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "permissions": [
+    { "action": "shell", "resource": "osascript *", "effect": "deny" },
+    { "action": "shell", "resource": "screencapture *", "effect": "deny" },
+    { "action": "shell", "resource": "cliclick *", "effect": "deny" }
+  ]
+}

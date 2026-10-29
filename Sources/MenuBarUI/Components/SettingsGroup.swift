@@ -1,0 +1,162 @@
+import AppCore
+import SwiftUI
+
+struct SettingsGroup: View {
+    let section: SettingSection
+    let onAction: (UIAction) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            if let title = section.title {
+                Text(title.uppercased())
+                    .font(.system(size: 9, weight: .semibold))
+                    .tracking(0.6)
+                    .foregroundStyle(.tertiary)
+                    .padding(.leading, 2)
+            }
+            VStack(spacing: 0) {
+                ForEach(Array(section.items.enumerated()), id: \.element.id) { index, item in
+                    SettingRow(item: item, onAction: onAction)
+                    if index < section.items.count - 1 {
+                        Divider()
+                            .opacity(0.6)
+                            .padding(.leading, Metric.rowPadding)
+                    }
+                }
+            }
+            .background(
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .fill(Color.panelFill)
+            )
+        }
+    }
+}
+
+struct SettingRow: View {
+    let item: SettingItem
+    let onAction: (UIAction) -> Void
+
+    var body: some View {
+        Group {
+            switch item.control {
+            case let .toggle(isOn):
+                toggleRow(isOn: isOn)
+            case let .slider(spec):
+                sliderRow(spec)
+            case let .picker(options, selectedIndex):
+                pickerRow(options: options, selectedIndex: selectedIndex)
+            case let .action(detail):
+                actionRow(detail: detail)
+            case let .info(value):
+                infoRow(value: value)
+            }
+        }
+        .opacity(item.isEnabled ? 1 : 0.45)
+    }
+
+    private func toggleRow(isOn: Bool) -> some View {
+        Button {
+            onAction(.toggle(itemID: item.id))
+        } label: {
+            HStack(spacing: 10) {
+                titleBlock
+                Spacer(minLength: 8)
+                SwitchView(isOn: isOn)
+            }
+            .padding(.horizontal, Metric.rowPadding)
+            .padding(.vertical, 7)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!item.isEnabled)
+    }
+
+    private func sliderRow(_ spec: SliderSpec) -> some View {
+        VStack(spacing: 3) {
+            HStack {
+                Text(item.title)
+                    .font(.system(.callout))
+                Spacer()
+                Text(spec.displayValue)
+                    .font(.system(size: 11, weight: .medium))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            }
+            SliderTrack(spec: spec) { value in
+                onAction(.setSlider(itemID: item.id, value: value))
+            }
+            HStack {
+                Text(spec.minimumLabel)
+                Spacer()
+                Text(spec.maximumLabel)
+            }
+            .font(.system(size: 9))
+            .foregroundStyle(.tertiary)
+        }
+        .padding(.horizontal, Metric.rowPadding)
+        .padding(.vertical, 8)
+    }
+
+    private func pickerRow(options: [String], selectedIndex: Int) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            titleBlock
+            SegmentedControl(options: options, selectedIndex: selectedIndex) { index in
+                onAction(.selectOption(itemID: item.id, index: index))
+            }
+        }
+        .padding(.horizontal, Metric.rowPadding)
+        .padding(.vertical, 8)
+    }
+
+    private func actionRow(detail: String?) -> some View {
+        Button {
+            onAction(.activate(itemID: item.id))
+        } label: {
+            HStack(spacing: 8) {
+                Text(item.title)
+                    .font(.system(.callout))
+                Spacer(minLength: 8)
+                if let detail {
+                    Text(detail)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.quaternary)
+            }
+            .padding(.horizontal, Metric.rowPadding)
+            .padding(.vertical, 8)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func infoRow(value: String) -> some View {
+        HStack(spacing: 8) {
+            Text(item.title)
+                .font(.system(.callout))
+            Spacer(minLength: 8)
+            Text(value)
+                .font(.system(size: 11))
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+        .padding(.horizontal, Metric.rowPadding)
+        .padding(.vertical, 7)
+    }
+
+    private var titleBlock: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(item.title)
+                .font(.system(.callout))
+            if let subtitle = item.subtitle {
+                Text(subtitle)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+}

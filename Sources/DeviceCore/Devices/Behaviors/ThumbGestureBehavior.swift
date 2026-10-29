@@ -120,15 +120,14 @@ final class ThumbGestureBehavior: DeviceBehavior {
 
     // MARK: - Gesture Engine
 
-    /// (Re)create the engine and sync thresholds from capability states.
+    /// (Re)create the engine with fixed thresholds: 200ms to still count as a
+    /// click, 200 units of movement before a hold becomes a drag.
     func syncEngine() {
         guard let spec = device.descriptor.thumbGesture else { return }
-        let clickMs = device.ints[CapabilityID.gestureClickMs]?.value ?? 200
-        let drag = device.ints[CapabilityID.gestureDragThreshold]?.value ?? 200
         if device.gestureEngine == nil {
             device.gestureEngine = GestureEngine(thumbCID: spec.thumbCID)
         }
-        device.gestureEngine?.updateConfig(clickTimeLimit: Double(clickMs) / 1000.0, dragThreshold: drag)
+        device.gestureEngine?.updateConfig(clickTimeLimit: 0.2, dragThreshold: 200)
     }
 
     // MARK: - Notifications

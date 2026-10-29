@@ -219,12 +219,6 @@ public enum DummyData {
                     title: "Launch at login",
                     control: .toggle(isOn: true)
                 ),
-                SettingItem(
-                    id: "general.hideFromDock",
-                    title: "Hide from Dock",
-                    subtitle: "Run as a menu bar only app",
-                    control: .toggle(isOn: true)
-                ),
             ]),
             SettingSection(id: "battery", title: "Battery", items: [
                 SettingItem(

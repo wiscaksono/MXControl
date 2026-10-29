@@ -33,7 +33,6 @@ everything else is covered by `make verify`.
 
 - [ ] Quit from the popover terminates the app.
 - [ ] Launch at login registers and survives a reboot.
-- [ ] Hide from Dock off shows the app in the Dock; on removes it.
 - [ ] Reset all settings asks for confirmation first.
 - [ ] Reconnect the mouse: saved settings come back without touching the UI.
 

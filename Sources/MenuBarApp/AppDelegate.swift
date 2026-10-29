@@ -36,9 +36,5 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             "general.launchAtLogin",
             to: SMAppService.mainApp.status == .enabled
         )
-        AppModel.shared.syncGeneralToggle(
-            "general.hideFromDock",
-            to: NSApp.activationPolicy() == .accessory
-        )
     }
 }

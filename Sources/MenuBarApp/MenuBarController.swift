@@ -111,9 +111,6 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         case let .toggle(itemID) where itemID == "general.launchAtLogin":
             model.handle(action)
             applyLaunchAtLogin()
-        case let .toggle(itemID) where itemID == "general.hideFromDock":
-            model.handle(action)
-            applyDockVisibility()
         default:
             model.handle(action)
         }
@@ -136,11 +133,6 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
             let actual = SMAppService.mainApp.status == .enabled
             model.syncGeneralToggle("general.launchAtLogin", to: actual)
         }
-    }
-
-    private func applyDockVisibility() {
-        let hidden = model.state.settingValue("general.hideFromDock") == .bool(true)
-        NSApp.setActivationPolicy(hidden ? .accessory : .regular)
     }
 
     private func confirmReset() {

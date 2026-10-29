@@ -56,7 +56,8 @@ a random UUID, so settings survive reconnects.
 ## Notes
 
 - Bundle id: `com.wiscaksono.mxcontrol`. Entitlements: USB, Bluetooth, HID.
-- `LSUIElement` hides the dock icon unless "Hide from Dock" is turned off.
+- `LSUIElement` keeps the app out of the Dock; the activation policy is always
+  `.accessory`.
 - Ad-hoc signing is enough locally. Changing the signing identity resets the
   Input Monitoring grant, so pick the final identity before testing scroll.
 - `HIDPP` and `DeviceCore` are vendored from MXControl and excluded from

@@ -14,31 +14,31 @@ struct SettingsStoreTests {
     }
 
     /// Clean up UserDefaults keys for a device name.
-    private func cleanup(deviceName: String) {
-        SettingsStore.clearSettings(for: deviceName)
+    private func cleanup(scope: String) {
+        SettingsStore.clearSettings(for: scope)
     }
 
     // MARK: - Single-Value Round-Trip
 
     @Test func intRoundTrip() {
         let name = uniqueDeviceName()
-        defer { cleanup(deviceName: name) }
+        defer { cleanup(scope: name) }
 
-        SettingsStore.saveValue(1600, CapabilityID.dpi, deviceName: name)
-        let loaded: Int? = SettingsStore.savedValue(CapabilityID.dpi, deviceName: name)
+        SettingsStore.saveValue(1600, CapabilityID.dpi, scope: name)
+        let loaded: Int? = SettingsStore.savedValue(CapabilityID.dpi, scope: name)
 
         #expect(loaded == 1600)
     }
 
     @Test func boolRoundTrip() {
         let name = uniqueDeviceName()
-        defer { cleanup(deviceName: name) }
+        defer { cleanup(scope: name) }
 
-        SettingsStore.saveValue(true, CapabilityID.smartShiftActive, deviceName: name)
-        SettingsStore.saveValue(false, CapabilityID.hiResInverted, deviceName: name)
+        SettingsStore.saveValue(true, CapabilityID.smartShiftActive, scope: name)
+        SettingsStore.saveValue(false, CapabilityID.hiResInverted, scope: name)
 
-        let active: Bool? = SettingsStore.savedValue(CapabilityID.smartShiftActive, deviceName: name)
-        let inverted: Bool? = SettingsStore.savedValue(CapabilityID.hiResInverted, deviceName: name)
+        let active: Bool? = SettingsStore.savedValue(CapabilityID.smartShiftActive, scope: name)
+        let inverted: Bool? = SettingsStore.savedValue(CapabilityID.hiResInverted, scope: name)
 
         #expect(active == true)
         #expect(inverted == false)
@@ -46,17 +46,17 @@ struct SettingsStoreTests {
 
     @Test func doubleRoundTrip() {
         let name = uniqueDeviceName()
-        defer { cleanup(deviceName: name) }
+        defer { cleanup(scope: name) }
 
-        SettingsStore.saveValue(3.5, CapabilityID.smoothScrollSpeed, deviceName: name)
-        let loaded: Double? = SettingsStore.savedValue(CapabilityID.smoothScrollSpeed, deviceName: name)
+        SettingsStore.saveValue(3.5, CapabilityID.smoothScrollSpeed, scope: name)
+        let loaded: Double? = SettingsStore.savedValue(CapabilityID.smoothScrollSpeed, scope: name)
 
         #expect(loaded == 3.5)
     }
 
     @Test func missingKeyReturnsNil() {
-        let intLoaded: Int? = SettingsStore.savedValue(CapabilityID.dpi, deviceName: uniqueDeviceName())
-        let boolLoaded: Bool? = SettingsStore.savedValue(CapabilityID.smartShiftActive, deviceName: uniqueDeviceName())
+        let intLoaded: Int? = SettingsStore.savedValue(CapabilityID.dpi, scope: uniqueDeviceName())
+        let boolLoaded: Bool? = SettingsStore.savedValue(CapabilityID.smartShiftActive, scope: uniqueDeviceName())
 
         #expect(intLoaded == nil)
         #expect(boolLoaded == nil)
@@ -64,21 +64,21 @@ struct SettingsStoreTests {
 
     @Test func typeMismatchReturnsNil() {
         let name = uniqueDeviceName()
-        defer { cleanup(deviceName: name) }
+        defer { cleanup(scope: name) }
 
-        SettingsStore.saveValue(1600, CapabilityID.dpi, deviceName: name)
-        let loaded: Bool? = SettingsStore.savedValue(CapabilityID.dpi, deviceName: name)
+        SettingsStore.saveValue(1600, CapabilityID.dpi, scope: name)
+        let loaded: Bool? = SettingsStore.savedValue(CapabilityID.dpi, scope: name)
 
         #expect(loaded == nil)
     }
 
     @Test func overwriteReplacesValue() {
         let name = uniqueDeviceName()
-        defer { cleanup(deviceName: name) }
+        defer { cleanup(scope: name) }
 
-        SettingsStore.saveValue(800, CapabilityID.dpi, deviceName: name)
-        SettingsStore.saveValue(1600, CapabilityID.dpi, deviceName: name)
-        let loaded: Int? = SettingsStore.savedValue(CapabilityID.dpi, deviceName: name)
+        SettingsStore.saveValue(800, CapabilityID.dpi, scope: name)
+        SettingsStore.saveValue(1600, CapabilityID.dpi, scope: name)
+        let loaded: Int? = SettingsStore.savedValue(CapabilityID.dpi, scope: name)
 
         #expect(loaded == 1600)
     }
@@ -89,26 +89,26 @@ struct SettingsStoreTests {
         let name1 = uniqueDeviceName("MX Master 3S")
         let name2 = uniqueDeviceName("mx keys mini")
         defer {
-            cleanup(deviceName: name1)
-            cleanup(deviceName: name2)
+            cleanup(scope: name1)
+            cleanup(scope: name2)
         }
 
-        SettingsStore.saveValue(1600, CapabilityID.dpi, deviceName: name1)
-        SettingsStore.saveValue(false, CapabilityID.fnStandardKeys, deviceName: name2)
+        SettingsStore.saveValue(1600, CapabilityID.dpi, scope: name1)
+        SettingsStore.saveValue(false, CapabilityID.fnStandardKeys, scope: name2)
 
-        let dpi: Int? = SettingsStore.savedValue(CapabilityID.dpi, deviceName: name1)
+        let dpi: Int? = SettingsStore.savedValue(CapabilityID.dpi, scope: name1)
         #expect(dpi == 1600)
 
-        let fnStandard: Bool? = SettingsStore.savedValue(CapabilityID.fnStandardKeys, deviceName: name2)
+        let fnStandard: Bool? = SettingsStore.savedValue(CapabilityID.fnStandardKeys, scope: name2)
         #expect(fnStandard == false)
     }
 
     @Test func specialCharsInDeviceName() {
         let name = uniqueDeviceName("MX-Keys_Mini (BLE)")
-        defer { cleanup(deviceName: name) }
+        defer { cleanup(scope: name) }
 
-        SettingsStore.saveValue(2400, CapabilityID.dpi, deviceName: name)
-        let loaded: Int? = SettingsStore.savedValue(CapabilityID.dpi, deviceName: name)
+        SettingsStore.saveValue(2400, CapabilityID.dpi, scope: name)
+        let loaded: Int? = SettingsStore.savedValue(CapabilityID.dpi, scope: name)
 
         #expect(loaded == 2400)
     }
@@ -117,20 +117,20 @@ struct SettingsStoreTests {
 
     @Test func clearSettingsRemovesAllKeys() {
         let name = uniqueDeviceName()
-        defer { cleanup(deviceName: name) }
+        defer { cleanup(scope: name) }
 
-        SettingsStore.saveValue(1600, CapabilityID.dpi, deviceName: name)
-        SettingsStore.saveValue(256, CapabilityID.pointerSpeed, deviceName: name)
-        SettingsStore.saveValue(true, CapabilityID.backlightEnabled, deviceName: name)
+        SettingsStore.saveValue(1600, CapabilityID.dpi, scope: name)
+        SettingsStore.saveValue(256, CapabilityID.pointerSpeed, scope: name)
+        SettingsStore.saveValue(true, CapabilityID.backlightEnabled, scope: name)
 
-        let beforeDPI: Int? = SettingsStore.savedValue(CapabilityID.dpi, deviceName: name)
+        let beforeDPI: Int? = SettingsStore.savedValue(CapabilityID.dpi, scope: name)
         #expect(beforeDPI == 1600)
 
         SettingsStore.clearSettings(for: name)
 
-        let afterDPI: Int? = SettingsStore.savedValue(CapabilityID.dpi, deviceName: name)
-        let afterSpeed: Int? = SettingsStore.savedValue(CapabilityID.pointerSpeed, deviceName: name)
-        let afterBacklight: Bool? = SettingsStore.savedValue(CapabilityID.backlightEnabled, deviceName: name)
+        let afterDPI: Int? = SettingsStore.savedValue(CapabilityID.dpi, scope: name)
+        let afterSpeed: Int? = SettingsStore.savedValue(CapabilityID.pointerSpeed, scope: name)
+        let afterBacklight: Bool? = SettingsStore.savedValue(CapabilityID.backlightEnabled, scope: name)
         #expect(afterDPI == nil)
         #expect(afterSpeed == nil)
         #expect(afterBacklight == nil)
@@ -140,19 +140,19 @@ struct SettingsStoreTests {
         let name1 = uniqueDeviceName("Device A")
         let name2 = uniqueDeviceName("Device B")
         defer {
-            cleanup(deviceName: name1)
-            cleanup(deviceName: name2)
+            cleanup(scope: name1)
+            cleanup(scope: name2)
         }
 
-        SettingsStore.saveValue(1600, CapabilityID.dpi, deviceName: name1)
-        SettingsStore.saveValue(3200, CapabilityID.dpi, deviceName: name2)
+        SettingsStore.saveValue(1600, CapabilityID.dpi, scope: name1)
+        SettingsStore.saveValue(3200, CapabilityID.dpi, scope: name2)
 
         SettingsStore.clearSettings(for: name1)
 
-        let afterA: Int? = SettingsStore.savedValue(CapabilityID.dpi, deviceName: name1)
+        let afterA: Int? = SettingsStore.savedValue(CapabilityID.dpi, scope: name1)
         #expect(afterA == nil)
 
-        let afterB: Int? = SettingsStore.savedValue(CapabilityID.dpi, deviceName: name2)
+        let afterB: Int? = SettingsStore.savedValue(CapabilityID.dpi, scope: name2)
         #expect(afterB == 3200)
     }
 }

@@ -130,24 +130,24 @@ enum CapabilityHandlers {
         let store = SettingsStore.self
         switch id {
         case .smoothScrollEnabled:
-            if let v: Bool = store.savedValue(id, deviceName: device.name) { device.toggles[id]?.value = v }
+            if let v: Bool = store.savedValue(id, scope: device.settingScope) { device.toggles[id]?.value = v }
         case .smoothScrollSpeed:
-            if let v: Double = store.savedValue(id, deviceName: device.name) { device.doubles[id]?.value = v }
+            if let v: Double = store.savedValue(id, scope: device.settingScope) { device.doubles[id]?.value = v }
         case .smoothScrollMomentum:
-            if let v: Double = store.savedValue(id, deviceName: device.name) { device.doubles[id]?.value = v }
+            if let v: Double = store.savedValue(id, scope: device.settingScope) { device.doubles[id]?.value = v }
         case .smoothScrollThumbSpeed:
-            if let v: Double = store.savedValue(id, deviceName: device.name) { device.doubles[id]?.value = v }
+            if let v: Double = store.savedValue(id, scope: device.settingScope) { device.doubles[id]?.value = v }
         case .gestureClickMs:
-            if let v: Int = store.savedValue(id, deviceName: device.name) {
+            if let v: Int = store.savedValue(id, scope: device.settingScope) {
                 device.ints[id]?.value = v
-            } else if let legacy: Double = store.savedValue("gesture.click_time", deviceName: device.name) {
+            } else if let legacy: Double = store.savedValue("gesture.click_time", scope: device.settingScope) {
                 // Clamp: legacy seconds had no upper bound, the slider is 100...400ms.
                 device.ints[id]?.value = min(400, max(100, Int((legacy * 1000.0).rounded())))
             }
         case .gestureDragThreshold:
-            if let v: Int = store.savedValue(id, deviceName: device.name) { device.ints[id]?.value = v }
+            if let v: Int = store.savedValue(id, scope: device.settingScope) { device.ints[id]?.value = v }
         case .micMuteEnabled:
-            if let v: Bool = store.savedValue(id, deviceName: device.name) { device.toggles[id]?.value = v }
+            if let v: Bool = store.savedValue(id, scope: device.settingScope) { device.toggles[id]?.value = v }
         case .battery, .dpi, .pointerSpeed,
              .smartShiftWheelMode, .smartShiftActive, .smartShiftTorque,
              .hiResEnabled, .hiResInverted, .thumbWheelInverted,
@@ -203,7 +203,7 @@ enum CapabilityHandlers {
         let state = device.ints[CapabilityID.dpi]
         state?.range = device.dpiMin...device.dpiMax
         state?.step = device.dpiStep
-        if let saved: Int = SettingsStore.savedValue(CapabilityID.dpi, deviceName: device.name) {
+        if let saved: Int = SettingsStore.savedValue(CapabilityID.dpi, scope: device.settingScope) {
             // writeDPI snaps to step and stores the snapped value in state.
             try await writeDPI(saved, on: device, index: idx)
         } else {
@@ -221,7 +221,7 @@ enum CapabilityHandlers {
         var speed = try await PointerSpeedFeature.getSpeed(
             transport: device.transport, deviceIndex: device.deviceIndex, featureIndex: idx
         )
-        if let saved: Int = SettingsStore.savedValue(CapabilityID.pointerSpeed, deviceName: device.name) {
+        if let saved: Int = SettingsStore.savedValue(CapabilityID.pointerSpeed, scope: device.settingScope) {
             speed = saved
             try await PointerSpeedFeature.setSpeed(
                 transport: device.transport, deviceIndex: device.deviceIndex, featureIndex: idx, speed: speed
@@ -308,9 +308,9 @@ enum CapabilityHandlers {
             active = isSmartShiftActive(status.autoDisengage)
         }
 
-        let savedMode: Int? = SettingsStore.savedValue(CapabilityID.smartShiftWheelMode, deviceName: device.name)
-        let savedActive: Bool? = SettingsStore.savedValue(CapabilityID.smartShiftActive, deviceName: device.name)
-        let savedTorque: Int? = SettingsStore.savedValue(CapabilityID.smartShiftTorque, deviceName: device.name)
+        let savedMode: Int? = SettingsStore.savedValue(CapabilityID.smartShiftWheelMode, scope: device.settingScope)
+        let savedActive: Bool? = SettingsStore.savedValue(CapabilityID.smartShiftActive, scope: device.settingScope)
+        let savedTorque: Int? = SettingsStore.savedValue(CapabilityID.smartShiftTorque, scope: device.settingScope)
         // v1 has no torque setting: a stale torque pref must not trigger a write.
         // Same for v2 without tunable torque (slider state was dropped above).
         let needsWrite = savedMode != nil || savedActive != nil
@@ -369,7 +369,7 @@ enum CapabilityHandlers {
         // never divert the thumbwheel (no listener consumes diverted events).
         device.thumbDiverted = config.diverted
         var inverted = config.inverted
-        if let saved: Bool = SettingsStore.savedValue(CapabilityID.thumbWheelInverted, deviceName: device.name) {
+        if let saved: Bool = SettingsStore.savedValue(CapabilityID.thumbWheelInverted, scope: device.settingScope) {
             inverted = saved
             try await ThumbWheelFeature.setConfig(
                 transport: device.transport, deviceIndex: device.deviceIndex, featureIndex: idx,
@@ -409,8 +409,8 @@ enum CapabilityHandlers {
 
             var enabled = config.enabled
             var level = config.level
-            let savedEnabled: Bool? = SettingsStore.savedValue(CapabilityID.backlightEnabled, deviceName: device.name)
-            let savedLevel: Int? = SettingsStore.savedValue(CapabilityID.backlightLevel, deviceName: device.name)
+            let savedEnabled: Bool? = SettingsStore.savedValue(CapabilityID.backlightEnabled, scope: device.settingScope)
+            let savedLevel: Int? = SettingsStore.savedValue(CapabilityID.backlightLevel, scope: device.settingScope)
             if savedEnabled != nil || savedLevel != nil {
                 enabled = savedEnabled ?? enabled
                 level = savedLevel ?? level
@@ -442,9 +442,9 @@ enum CapabilityHandlers {
 
             // UI sense: standard F-keys primary. Protocol sense is inverted.
             var wantStandard = !state.fnInverted
-            if let saved: Bool = SettingsStore.savedValue(CapabilityID.fnStandardKeys, deviceName: device.name) {
+            if let saved: Bool = SettingsStore.savedValue(CapabilityID.fnStandardKeys, scope: device.settingScope) {
                 wantStandard = saved
-            } else if let legacy: Bool = SettingsStore.savedValue("fn.inverted", deviceName: device.name) {
+            } else if let legacy: Bool = SettingsStore.savedValue("fn.inverted", scope: device.settingScope) {
                 wantStandard = !legacy
             }
             if wantStandard != !state.fnInverted {
@@ -517,7 +517,7 @@ enum CapabilityHandlers {
                     transport: device.transport, deviceIndex: device.deviceIndex
                 )
                 try await writeDPI(state?.value ?? 1000, on: device, index: idx)
-                if let v = state?.value { SettingsStore.saveValue(v, id, deviceName: device.name) }
+                if let v = state?.value { SettingsStore.saveValue(v, id, scope: device.settingScope) }
 
             case .pointerSpeed:
                 let idx = try await device.featureIndexCache.resolve(
@@ -528,7 +528,7 @@ enum CapabilityHandlers {
                     transport: device.transport, deviceIndex: device.deviceIndex,
                     featureIndex: idx, speed: device.pointerSpeed
                 )
-                SettingsStore.saveValue(device.pointerSpeed, id, deviceName: device.name)
+                SettingsStore.saveValue(device.pointerSpeed, id, scope: device.settingScope)
                 logger.info("[CapabilityHandlers] Pointer speed set to \(device.pointerSpeed)")
 
             case .smartShiftWheelMode:
@@ -554,7 +554,7 @@ enum CapabilityHandlers {
                 device.segmented[id]?.selected = Int(echoedMode.rawValue)
                 device.toggles[CapabilityID.smartShiftActive]?.value = isSmartShiftActive(echoedAD)
                 ScrollInterceptor.shared.wheelMode = echoedMode == .freeSpin ? .freeSpin : .ratchet
-                SettingsStore.saveValue(Int(echoedMode.rawValue), id, deviceName: device.name)
+                SettingsStore.saveValue(Int(echoedMode.rawValue), id, scope: device.settingScope)
                 logger.info("[CapabilityHandlers] SmartShift wheel mode: \(echoedMode)")
 
             case .smartShiftActive:
@@ -585,7 +585,7 @@ enum CapabilityHandlers {
                 }
                 device.toggles[id]?.value = echoedActive
                 ScrollInterceptor.shared.wheelMode = (device.segmented[CapabilityID.smartShiftWheelMode]?.selected == 1) ? .freeSpin : .ratchet
-                SettingsStore.saveValue(echoedActive, id, deviceName: device.name)
+                SettingsStore.saveValue(echoedActive, id, scope: device.settingScope)
 
             case .smartShiftTorque:
                 // v1 and untunable-v2 have no torque slider state; the commit
@@ -600,7 +600,7 @@ enum CapabilityHandlers {
                 if status.torque > 0 {
                     device.ints[id]?.value = status.torque
                 }
-                SettingsStore.saveValue(device.ints[id]?.value ?? torque, id, deviceName: device.name)
+                SettingsStore.saveValue(device.ints[id]?.value ?? torque, id, scope: device.settingScope)
 
             case .hiResEnabled, .hiResInverted:
                 guard let idx = device.hiResScrollFeatureIndex else { return }
@@ -612,8 +612,8 @@ enum CapabilityHandlers {
                     target: device.toggles[CapabilityID.smoothScrollEnabled]?.value ?? false,
                     hiRes: hiRes, inverted: inverted
                 )
-                SettingsStore.saveValue(hiRes, CapabilityID.hiResEnabled, deviceName: device.name)
-                SettingsStore.saveValue(inverted, CapabilityID.hiResInverted, deviceName: device.name)
+                SettingsStore.saveValue(hiRes, CapabilityID.hiResEnabled, scope: device.settingScope)
+                SettingsStore.saveValue(inverted, CapabilityID.hiResInverted, scope: device.settingScope)
 
             case .thumbWheelInverted:
                 let inverted = device.toggles[id]?.value ?? false
@@ -625,7 +625,7 @@ enum CapabilityHandlers {
                     transport: device.transport, deviceIndex: device.deviceIndex,
                     featureIndex: idx, inverted: inverted, diverted: device.thumbDiverted
                 )
-                SettingsStore.saveValue(inverted, id, deviceName: device.name)
+                SettingsStore.saveValue(inverted, id, scope: device.settingScope)
 
             case .smoothScrollEnabled:
                 let enabled = device.toggles[id]?.value ?? false
@@ -634,26 +634,26 @@ enum CapabilityHandlers {
                 // matches the last user intent.
                 device.hiResTargetTask?.cancel()
                 device.hiResTargetTask = Task { await device.scrollBehavior?.setTarget(enabled) }
-                SettingsStore.saveValue(enabled, id, deviceName: device.name)
+                SettingsStore.saveValue(enabled, id, scope: device.settingScope)
 
             case .smoothScrollSpeed:
                 let v = device.doubles[id]?.value ?? 3.0
                 ScrollInterceptor.shared.speedMultiplier = v
-                SettingsStore.saveValue(v, id, deviceName: device.name)
+                SettingsStore.saveValue(v, id, scope: device.settingScope)
 
             case .smoothScrollMomentum:
                 let v = device.doubles[id]?.value ?? 0.92
                 ScrollInterceptor.shared.momentumDecay = v
-                SettingsStore.saveValue(v, id, deviceName: device.name)
+                SettingsStore.saveValue(v, id, scope: device.settingScope)
 
             case .smoothScrollThumbSpeed:
                 let v = device.doubles[id]?.value ?? 1.0
                 ScrollInterceptor.shared.thumbSpeedMultiplier = v
-                SettingsStore.saveValue(v, id, deviceName: device.name)
+                SettingsStore.saveValue(v, id, scope: device.settingScope)
 
             case .gestureClickMs, .gestureDragThreshold:
                 device.thumbGestureBehavior?.syncEngine()
-                if let v = device.ints[id]?.value { SettingsStore.saveValue(v, id, deviceName: device.name) }
+                if let v = device.ints[id]?.value { SettingsStore.saveValue(v, id, scope: device.settingScope) }
 
             case .backlightEnabled, .backlightLevel:
                 guard let fid = device.backlightFid else { return }
@@ -663,8 +663,8 @@ enum CapabilityHandlers {
                 let enabled = device.toggles[CapabilityID.backlightEnabled]?.value ?? false
                 let level = device.ints[CapabilityID.backlightLevel]?.value ?? 0
                 try await writeBacklight(enabled: enabled, level: level, on: device, index: idx)
-                SettingsStore.saveValue(enabled, CapabilityID.backlightEnabled, deviceName: device.name)
-                SettingsStore.saveValue(level, CapabilityID.backlightLevel, deviceName: device.name)
+                SettingsStore.saveValue(enabled, CapabilityID.backlightEnabled, scope: device.settingScope)
+                SettingsStore.saveValue(level, CapabilityID.backlightLevel, scope: device.settingScope)
 
             case .fnStandardKeys:
                 let wantStandard = device.toggles[id]?.value ?? true
@@ -677,12 +677,12 @@ enum CapabilityHandlers {
                     featureIndex: idx, featureId: fid,
                     fnInverted: !wantStandard, defaultState: device.fnDefaultState
                 )
-                SettingsStore.saveValue(wantStandard, id, deviceName: device.name)
+                SettingsStore.saveValue(wantStandard, id, scope: device.settingScope)
 
             case .micMuteEnabled:
                 let enabled = device.toggles[id]?.value ?? false
                 await device.micMuteBehavior?.setEnabled(enabled)
-                SettingsStore.saveValue(enabled, id, deviceName: device.name)
+                SettingsStore.saveValue(enabled, id, scope: device.settingScope)
 
             case .battery, .hosts:
                 break // Display-only; nothing to write.

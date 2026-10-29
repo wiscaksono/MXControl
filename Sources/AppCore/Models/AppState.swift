@@ -52,10 +52,23 @@ public struct AppState: Equatable, Sendable {
         warning = nil
     }
 
-    public mutating func finishScan(devices: [DeviceSummary], details: [DeviceID: DeviceDetail]) {
+    public mutating func finishScan(
+        devices: [DeviceSummary],
+        details: [DeviceID: DeviceDetail],
+        warning: String? = nil
+    ) {
         self.devices = devices
         self.details = details
+        self.warning = warning
         isScanning = false
+    }
+
+    /// Update a general-screen toggle, e.g. after reading the real system state.
+    public mutating func setGeneralToggle(_ itemID: String, to value: Bool) {
+        Self.update(in: &general, id: itemID) { item in
+            guard case .toggle = item.control else { return }
+            item.control = .toggle(isOn: value)
+        }
     }
 
     public var activeDetail: DeviceDetail? {

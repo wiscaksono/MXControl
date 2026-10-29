@@ -5,10 +5,17 @@ import Foundation
 public struct DeviceSnapshot: Equatable, Sendable {
     public var devices: [DeviceSummary]
     public var details: [DeviceID: DeviceDetail]
+    /// Set when discovery hit a permission or transport problem.
+    public var warning: String?
 
-    public init(devices: [DeviceSummary] = [], details: [DeviceID: DeviceDetail] = [:]) {
+    public init(
+        devices: [DeviceSummary] = [],
+        details: [DeviceID: DeviceDetail] = [:],
+        warning: String? = nil
+    ) {
         self.devices = devices
         self.details = details
+        self.warning = warning
     }
 }
 

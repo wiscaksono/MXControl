@@ -48,8 +48,8 @@ final class ScrollBehavior: DeviceBehavior {
             // Saved prefs win over hardware so reconnects restore settings.
             var hiRes = mode.hiRes
             var inverted = mode.inverted
-            let savedHiRes: Bool? = SettingsStore.savedValue(CapabilityID.hiResEnabled, deviceName: device.name)
-            let savedInverted: Bool? = SettingsStore.savedValue(CapabilityID.hiResInverted, deviceName: device.name)
+            let savedHiRes: Bool? = SettingsStore.savedValue(CapabilityID.hiResEnabled, scope: device.settingScope)
+            let savedInverted: Bool? = SettingsStore.savedValue(CapabilityID.hiResInverted, scope: device.settingScope)
             if savedHiRes != nil || savedInverted != nil {
                 hiRes = savedHiRes ?? hiRes
                 inverted = savedInverted ?? inverted

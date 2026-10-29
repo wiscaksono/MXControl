@@ -65,8 +65,17 @@ public final class AppModel {
 
             let snapshot = await service.scan()
             guard !Task.isCancelled else { return }
-            state.finishScan(devices: snapshot.devices, details: snapshot.details)
+            state.finishScan(
+                devices: snapshot.devices,
+                details: snapshot.details,
+                warning: snapshot.warning
+            )
         }
+    }
+
+    /// Push the real system value into the general screen at launch.
+    public func syncGeneralToggle(_ itemID: String, to value: Bool) {
+        state.setGeneralToggle(itemID, to: value)
     }
 
     /// Optimistic UI: the local state already changed, so forward the same

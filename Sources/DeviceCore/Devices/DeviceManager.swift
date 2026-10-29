@@ -761,7 +761,10 @@ final class DeviceManager {
 
         if !wantMonitor {
             for ble in bleDevices where ble.deviceType == .keyboard {
-                let pref: Bool? = SettingsStore.savedValue(CapabilityID.micMuteEnabled, deviceName: ble.name)
+                let pref: Bool? = SettingsStore.savedValue(
+                    CapabilityID.micMuteEnabled,
+                    scope: "ble.\(ble.name)"
+                )
                 if pref == true {
                     wantMonitor = true
                     break

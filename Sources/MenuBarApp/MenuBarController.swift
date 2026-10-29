@@ -2,7 +2,11 @@ import AppCore
 import AppKit
 import AppRuntime
 import MenuBarUI
+import os
+import ServiceManagement
 import SwiftUI
+
+private let logger = Logger(subsystem: "com.wiscaksono.mxcontrol", category: "app")
 
 final class MenuBarController: NSObject {
     private let model: AppModel
@@ -94,9 +98,39 @@ final class MenuBarController: NSObject {
             openPermissionSettings()
         case let .activate(itemID) where itemID == "general.reset":
             confirmReset()
+        case let .toggle(itemID) where itemID == "general.launchAtLogin":
+            model.handle(action)
+            applyLaunchAtLogin()
+        case let .toggle(itemID) where itemID == "general.hideFromDock":
+            model.handle(action)
+            applyDockVisibility()
         default:
             model.handle(action)
         }
+    }
+
+    private func applyLaunchAtLogin() {
+        let enabled = model.state.settingValue("general.launchAtLogin") == .bool(true)
+        do {
+            if enabled {
+                try SMAppService.mainApp.register()
+            } else {
+                try SMAppService.mainApp.unregister()
+            }
+        } catch {
+            logger
+                .error(
+                    "[App] Launch at login failed: \(error.localizedDescription, privacy: .public)"
+                )
+            // Reflect the real state instead of leaving the switch lying.
+            let actual = SMAppService.mainApp.status == .enabled
+            model.syncGeneralToggle("general.launchAtLogin", to: actual)
+        }
+    }
+
+    private func applyDockVisibility() {
+        let hidden = model.state.settingValue("general.hideFromDock") == .bool(true)
+        NSApp.setActivationPolicy(hidden ? .accessory : .regular)
     }
 
     private func confirmReset() {

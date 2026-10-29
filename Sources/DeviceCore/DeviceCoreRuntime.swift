@@ -15,6 +15,7 @@ public final class DeviceCoreRuntime {
     /// Process-level services that should run for the app's whole lifetime.
     public func start() {
         MicMuteEngine.shared.startDeviceMonitoring()
+        BatteryNotifier.setup()
     }
 
     public func scan() async -> DeviceSnapshot {
@@ -43,7 +44,22 @@ public final class DeviceCoreRuntime {
             details[summary.id] = detail(for: device, summary: summary)
         }
 
-        return DeviceSnapshot(devices: summaries, details: details)
+        return DeviceSnapshot(
+            devices: summaries,
+            details: details,
+            warning: discoveryWarning
+        )
+    }
+
+    /// Discovery reports permission and transport problems through its status
+    /// string; surface the ones the user can act on.
+    private var discoveryWarning: String? {
+        let message = manager.statusMessage
+        let lowered = message.lowercased()
+        let isProblem = lowered.contains("permission")
+            || lowered.contains("restricted")
+            || lowered.contains("failed")
+        return isProblem ? message : nil
     }
 
     /// Apply one UI edit to the matching device, then hand back the device's

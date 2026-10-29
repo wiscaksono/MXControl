@@ -171,3 +171,23 @@ struct PopoverSizingTests {
         #expect(PopoverSizing.maxViewport(screenHeight: 300) == PopoverSizing.minimumViewport)
     }
 }
+
+struct AppSystemSettingsTests {
+    @Test func generalToggleTakesSystemValue() {
+        var state = DummyData.initialState(route: .general)
+        state.setGeneralToggle("general.launchAtLogin", to: false)
+        #expect(state.settingValue("general.launchAtLogin") == .bool(false))
+    }
+
+    @Test func finishScanCarriesWarning() {
+        var state = DummyData.emptyState()
+        state.beginScan()
+        state.finishScan(
+            devices: [],
+            details: [:],
+            warning: "Input Monitoring permission required"
+        )
+        #expect(state.warning == "Input Monitoring permission required")
+        #expect(!state.isScanning)
+    }
+}

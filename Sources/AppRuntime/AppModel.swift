@@ -19,7 +19,7 @@ public final class AppModel {
         state: AppState = DummyData.initialState(),
         service: any DeviceService = DummyDeviceService(),
         scanDelay: Duration = .milliseconds(600),
-        refreshInterval: Duration = .seconds(60)
+        refreshInterval: Duration = .seconds(5)
     ) {
         self.state = state
         self.service = service
@@ -113,7 +113,8 @@ public final class AppModel {
         }
     }
 
-    /// Battery and connection state drift while the popover is closed.
+    /// Battery and connection state drift while the popover is closed, and
+    /// devices finish initializing after the first snapshot.
     private func startRefreshLoop() {
         refreshTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
@@ -121,6 +122,13 @@ public final class AppModel {
                 try? await Task.sleep(for: interval)
                 guard let self, !Task.isCancelled else { return }
                 guard let snapshot = await service.refresh() else { continue }
+
+                let current = DeviceSnapshot(
+                    devices: state.devices,
+                    details: state.details,
+                    warning: state.warning
+                )
+                guard snapshot != current else { continue }
                 adopt(snapshot)
             }
         }

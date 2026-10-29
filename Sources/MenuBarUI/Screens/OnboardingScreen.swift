@@ -1,21 +1,33 @@
 import AppCore
+import os
 import SwiftUI
+
+private let logger = Logger(subsystem: "com.wiscaksono.mxcontrol", category: "onboarding")
 
 struct OnboardingScreen: View {
     let permissions: PermissionState
     let onAction: (UIAction) -> Void
 
+    @State private var furthestStep = 0
+
     /// Order matters: macOS composes Input Monitoring on top of Accessibility,
     /// so Accessibility has to land first.
     private let stepOrder: [PermissionKind] = [.accessibility, .inputMonitoring, .bluetooth]
 
-    private var currentIndex: Int {
+    /// First step whose required permission is still missing.
+    private var requiredStep: Int {
         if let index = stepOrder.firstIndex(where: {
             $0 != .bluetooth && permissions.status(for: $0) != .granted
         }) {
             return index
         }
         return stepOrder.count - 1
+    }
+
+    /// Steps only move forward. A transient "denied" (TCC being edited in
+    /// System Settings) must not throw the user back while a prompt is open.
+    private var currentIndex: Int {
+        max(requiredStep, furthestStep)
     }
 
     private var currentKind: PermissionKind {
@@ -40,6 +52,27 @@ struct OnboardingScreen: View {
             footer
         }
         .padding(.horizontal, Metric.horizontalPadding)
+        .onChange(of: requiredStep) { _, step in
+            guard step > furthestStep else { return }
+            furthestStep = step
+        }
+        .onChange(of: currentIndex) { _, index in
+            let kind = stepOrder[index]
+            logger.notice(
+                "[Onboarding] step \(index + 1)/\(stepOrder.count) kind=\(kind.rawValue, privacy: .public) \(statusSummary, privacy: .public)"
+            )
+        }
+        .onAppear {
+            // Start from the first missing grant, and never move backwards.
+            furthestStep = max(furthestStep, requiredStep)
+            logger.notice("[Onboarding] shown \(statusSummary, privacy: .public)")
+        }
+    }
+
+    private var statusSummary: String {
+        PermissionKind.allCases
+            .map { "\($0.rawValue)=\(permissions.status(for: $0).label)" }
+            .joined(separator: " ")
     }
 
     private var header: some View {

@@ -192,9 +192,31 @@ struct SpinningIcon: View {
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
             let seconds = context.date.timeIntervalSinceReferenceDate
-            Image(systemName: "circle.dotted")
-                .rotationEffect(.degrees(seconds.truncatingRemainder(dividingBy: 1) * 360))
+            SpinnerArc()
+                .stroke(
+                    Color.secondary,
+                    style: StrokeStyle(lineWidth: 1.5, lineCap: .round)
+                )
+                .frame(width: 13, height: 13)
+                .rotationEffect(
+                    .degrees(seconds.truncatingRemainder(dividingBy: 0.9) / 0.9 * 360)
+                )
         }
+    }
+}
+
+private nonisolated struct SpinnerArc: Shape {
+    func path(in rect: CGRect) -> Path {
+        let radius = min(rect.width, rect.height) / 2 - 0.75
+        var path = Path()
+        path.addArc(
+            center: CGPoint(x: rect.midX, y: rect.midY),
+            radius: radius,
+            startAngle: .degrees(0),
+            endAngle: .degrees(270),
+            clockwise: false
+        )
+        return path
     }
 }
 

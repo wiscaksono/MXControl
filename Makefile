@@ -2,6 +2,9 @@ CONFIG ?= debug
 APP_NAME := MenuBarApp
 APP := build/$(APP_NAME).app
 SNAPSHOT_DIR := build/snapshots
+# Falls back to ad-hoc when no development certificate is present.
+SIGNING_IDENTITY ?= $(shell security find-identity -v -p codesigning 2>/dev/null \
+	| sed -n 's/.*"\(Apple Development[^"]*\)"/\1/p' | head -1)
 
 .PHONY: build test lint format selfcheck snapshot bundle run stop dev verify release install clean
 
@@ -25,7 +28,7 @@ snapshot:
 	swift run -c $(CONFIG) Snapshot --out $(SNAPSHOT_DIR)
 
 bundle: build
-	./scripts/bundle.sh ".build/$(CONFIG)/$(APP_NAME)" "$(APP)"
+	SIGNING_IDENTITY="$(SIGNING_IDENTITY)" ./scripts/bundle.sh ".build/$(CONFIG)/$(APP_NAME)" "$(APP)"
 
 run: bundle
 	open -g "$(APP)"
@@ -57,7 +60,7 @@ verify: build test selfcheck snapshot lint
 
 release:
 	swift build -c release --arch arm64 --arch x86_64
-	./scripts/bundle.sh "$$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)/$(APP_NAME)" "$(APP)"
+	SIGNING_IDENTITY="$(SIGNING_IDENTITY)" ./scripts/bundle.sh "$$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)/$(APP_NAME)" "$(APP)"
 
 install: release
 	rm -rf "/Applications/$(APP_NAME).app"

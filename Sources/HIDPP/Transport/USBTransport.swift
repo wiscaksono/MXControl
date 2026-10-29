@@ -819,6 +819,8 @@ public final class USBTransport: HIDTransport, @unchecked Sendable {
 
         let errorName: String
         if openResult == IOReturn(bitPattern: 0xE000_02E2) {
+            errorName = "kIOReturnNotPermitted"
+        } else if openResult == IOReturn(bitPattern: 0xE000_02C5) {
             errorName = "kIOReturnExclusiveAccess"
         } else if openResult == IOReturn(bitPattern: 0xE000_02CD) {
             errorName = "kIOReturnNotOpen"

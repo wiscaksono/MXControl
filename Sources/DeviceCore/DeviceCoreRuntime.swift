@@ -1,6 +1,8 @@
 import AppCore
+import ApplicationServices
 import Foundation
 import HIDPP
+import IOKit.hid
 
 /// Owns the HID++ device manager and turns its mutable device objects into the
 /// plain snapshot the UI consumes.
@@ -14,8 +16,19 @@ public final class DeviceCoreRuntime {
 
     /// Process-level services that should run for the app's whole lifetime.
     public func start() {
+        requestPermissions()
         MicMuteEngine.shared.startDeviceMonitoring()
         BatteryNotifier.setup()
+    }
+
+    /// Opening a HID device requires Input Monitoring; the event tap used for
+    /// scrolling requires Accessibility. Asking once puts both prompts in front
+    /// of the user instead of failing with a cryptic IOKit error.
+    private func requestPermissions() {
+        _ = IOHIDRequestAccess(kIOHIDRequestTypeListenEvent)
+
+        let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
+        _ = AXIsProcessTrustedWithOptions(options)
     }
 
     /// Scroll interception can only start once Accessibility is granted. Retry

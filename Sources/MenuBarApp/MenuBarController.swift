@@ -78,8 +78,7 @@ final class MenuBarController: NSObject {
         let size = NSSize(width: PopoverView.preferredWidth, height: height)
         guard abs(popover.contentSize.height - size.height) > 0.5 else { return }
 
-        // This is called from SwiftUI's layout pass; resizing the window inline
-        // re-enters layout. Hop out of the current pass first.
+        // Called from SwiftUI's layout pass; resizing inline re-enters layout.
         Task { @MainActor in
             guard abs(self.popover.contentSize.height - size.height) > 0.5 else { return }
             self.popover.contentSize = size

@@ -21,7 +21,7 @@ extension Color {
 
 enum Motion {
     static let control = Animation.snappy(duration: 0.15)
-    static let screen = Animation.easeOut(duration: 0.18)
+    static let screen = Animation.snappy(duration: 0.28, extraBounce: 0)
 
     /// Animations are skipped entirely when the system asks for reduced motion.
     static func resolved(_ animation: Animation, reduceMotion: Bool) -> Animation? {

@@ -79,11 +79,21 @@ public struct PopoverView: View {
                 }
                 .buttonStyle(IconButtonStyle())
                 .help("Back")
+                .transition(.move(edge: .leading).combined(with: .opacity))
             }
 
-            Text(headerTitle)
-                .font(.body.weight(.semibold))
-                .lineLimit(1)
+            ZStack(alignment: .leading) {
+                Text(headerTitle)
+                    .font(.body.weight(.semibold))
+                    .lineLimit(1)
+                    .id(headerTitle)
+                    .transition(
+                        .asymmetric(
+                            insertion: .opacity.combined(with: .offset(x: 10)),
+                            removal: .opacity.combined(with: .offset(x: -6))
+                        )
+                    )
+            }
 
             Spacer(minLength: 8)
 
@@ -92,6 +102,12 @@ public struct PopoverView: View {
         .padding(.leading, state.route == .root ? 10 : 4)
         .padding(.trailing, 4)
         .frame(height: Metric.headerHeight)
+        .animation(
+            Motion.resolved(Motion.screen, reduceMotion: reduceMotion),
+            value: state.route
+        )
+        .compositingGroup()
+        .clipped()
         .focusEffectDisabled()
     }
 
@@ -136,7 +152,12 @@ public struct PopoverView: View {
                         }
                     )
                     .id(state.route)
-                    .transition(.opacity)
+                    .transition(
+                        .asymmetric(
+                            insertion: .opacity.combined(with: .offset(y: 6)),
+                            removal: .opacity.combined(with: .offset(y: -6))
+                        )
+                    )
             }
             .frame(height: viewportHeight)
             .animation(

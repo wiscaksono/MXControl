@@ -34,7 +34,6 @@ struct RootScreen: View {
                 if index < state.devices.count - 1 {
                     Divider()
                         .opacity(0.6)
-                        .padding(.leading, 42)
                 }
             }
         }

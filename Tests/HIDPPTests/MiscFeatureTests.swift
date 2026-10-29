@@ -92,6 +92,24 @@ struct HiResScrollFeatureTests {
         let sent = mock.sentRequests[0]
         // target(0x01) | hiRes(0x02) | inverted(0x04) = 0x07
         #expect(sent.params[0] == 0x07)
+        // Full three-byte mode: firmware bytes must be present, never dropped.
+        #expect(sent.params.count == 3)
+        #expect(sent.params[1] == 0x00)
+        #expect(sent.params[2] == 0x00)
+    }
+
+    @Test func setWheelModePreservesFirmwareBytes() async throws {
+        let mock = MockHIDTransport()
+        mock.respond(featureIndex: 0x0A, functionId: 0x02, params: [UInt8](repeating: 0, count: 16))
+
+        try await HiResScrollFeature.setWheelMode(
+            transport: mock, deviceIndex: 0x01, featureIndex: 0x0A,
+            target: true, hiRes: true, inverted: false,
+            extensionBytes: [0xAB, 0xCD]
+        )
+
+        let sent = mock.sentRequests[0]
+        #expect(sent.params == [0x03, 0xAB, 0xCD])
     }
 
     @Test func setWheelModeAllFalse() async throws {

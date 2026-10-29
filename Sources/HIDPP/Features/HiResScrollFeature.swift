@@ -42,6 +42,16 @@ public enum HiResScrollFeature {
         public let hiRes: Bool
         /// Whether scroll direction is inverted (natural scrolling).
         public let inverted: Bool
+        /// Firmware-owned bytes (priority, rate, analytics). Echoed back on
+        /// every write; never interpret them, just preserve.
+        public let extensionBytes: [UInt8]
+
+        public init(target: Bool, hiRes: Bool, inverted: Bool, extensionBytes: [UInt8] = [0, 0]) {
+            self.target = target
+            self.hiRes = hiRes
+            self.inverted = inverted
+            self.extensionBytes = extensionBytes
+        }
     }
 
     // MARK: - Function 0: GetWheelCapability
@@ -96,11 +106,15 @@ public enum HiResScrollFeature {
             softwareId: 0x01
         )
 
-        let flags = response.params[0]
+        let flags = response.params.first ?? 0
+        let extensionBytes = response.params.count > 2
+            ? [response.params[1], response.params[2]]
+            : [0, 0]
         return WheelMode(
             target: (flags & 0x01) != 0,
             hiRes: (flags & 0x02) != 0,
-            inverted: (flags & 0x04) != 0
+            inverted: (flags & 0x04) != 0,
+            extensionBytes: extensionBytes
         )
     }
 
@@ -110,6 +124,8 @@ public enum HiResScrollFeature {
     public struct WheelMovement: Sendable {
         /// Scroll delta in hi-res ticks (positive = up/away, negative = down/toward).
         public let deltaV: Int16
+        /// Horizontal wheel delta (bytes 3–4). Zero on vertical-only wheels.
+        public let deltaHorizontal: Int16
         /// Whether the device is currently in hi-res mode.
         public let hiRes: Bool
         /// Number of reporting periods accumulated in this event.
@@ -121,13 +137,22 @@ public enum HiResScrollFeature {
     /// Byte layout:
     ///   param[0]: flags — bit 4 = hi_res active, bits 0-3 = periods
     ///   param[1..2]: delta_v — signed 16-bit big-endian scroll delta
+    ///   param[3..4]: delta_h — signed 16-bit big-endian horizontal delta
     public static func parseWheelMovement(params: [UInt8]) -> WheelMovement? {
         guard params.count >= 3 else { return nil }
         let flags = params[0]
         let hiRes = (flags & 0x10) != 0
         let periods = flags & 0x0F
         let deltaV = Int16(bitPattern: (UInt16(params[1]) << 8) | UInt16(params[2]))
-        return WheelMovement(deltaV: deltaV, hiRes: hiRes, periods: periods)
+        let deltaH = params.count >= 5
+            ? Int16(bitPattern: (UInt16(params[3]) << 8) | UInt16(params[4]))
+            : 0
+        return WheelMovement(
+            deltaV: deltaV,
+            deltaHorizontal: deltaH,
+            hiRes: hiRes,
+            periods: periods
+        )
     }
 
     /// Parse a ratchetSwitch notification (event 1).
@@ -145,29 +170,42 @@ public enum HiResScrollFeature {
 
     /// Set scroll wheel mode.
     ///
+    /// Writes the full three-byte mode. Bytes 1–2 are firmware-owned
+    /// (priority/rate/analytics) and are read back and echoed unless the caller
+    /// supplies them, because zeroing them drops the device's tuning.
+    ///
     /// - Parameters:
     ///   - target: Reporting target — false = HID (OS), true = HID++ (diverted).
     ///   - hiRes: Enable hi-res scrolling (sub-notch resolution).
     ///   - inverted: Enable natural (inverted) scroll direction.
+    ///   - extensionBytes: Firmware bytes from a previous `getWheelMode` read.
     public static func setWheelMode(
         transport: HIDTransport,
         deviceIndex: UInt8,
         featureIndex: UInt8,
         target: Bool = false,
         hiRes: Bool,
-        inverted: Bool
+        inverted: Bool,
+        extensionBytes: [UInt8]? = nil
     ) async throws {
         var flags: UInt8 = 0
         if target { flags |= 0x01 }    // bit 0 = target
         if hiRes { flags |= 0x02 }     // bit 1 = resolution
         if inverted { flags |= 0x04 }  // bit 2 = invert
 
+        let extension_: [UInt8]
+        if let extensionBytes, extensionBytes.count >= 2 {
+            extension_ = [extensionBytes[0], extensionBytes[1]]
+        } else {
+            extension_ = [0, 0]
+        }
+
         let _ = try await transport.send(
             deviceIndex: deviceIndex,
             featureIndex: featureIndex,
             functionId: 0x02,
             softwareId: 0x01,
-            params: [flags]
+            params: [flags, extension_[0], extension_[1]]
         )
     }
 }

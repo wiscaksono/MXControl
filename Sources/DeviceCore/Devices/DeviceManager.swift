@@ -719,7 +719,11 @@ final class DeviceManager {
             // smoother.accumulate() is lock-protected and safe to call from any thread.
             if let hrIdx = hiResScrollIndices[key], featureIndex == hrIdx, functionId == 0x00 {
                 if let movement = HiResScrollFeature.parseWheelMovement(params: params) {
-                    ScrollInterceptor.shared.handleHiResScroll(deltaV: movement.deltaV, hiRes: movement.hiRes)
+                    ScrollInterceptor.shared.handleHiResScroll(
+                        deltaV: movement.deltaV,
+                        deltaX: movement.deltaHorizontal,
+                        hiRes: movement.hiRes
+                    )
                 }
                 return
             }

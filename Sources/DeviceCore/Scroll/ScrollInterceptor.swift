@@ -147,7 +147,7 @@ final class ScrollInterceptor: @unchecked Sendable {
     /// input event rate as a proxy for scroll speed:
     ///   - Slow scroll (few events/100ms) → ~1x (no boost)
     ///   - Fast scroll (many events/100ms) → up to ~4x amplification
-    func handleHiResScroll(deltaV: Int16, hiRes: Bool) {
+    func handleHiResScroll(deltaV: Int16, deltaX: Int16 = 0, hiRes: Bool) {
         let now = mach_absolute_time()
 
         // Ring buffer: append timestamp, prune expired entries from head.
@@ -176,7 +176,8 @@ final class ScrollInterceptor: @unchecked Sendable {
         let natural = flagLock.withLock { _isNaturalScroll }
 
         let scrollY = Double(deltaV) * basePx * acceleration * (natural ? -1.0 : 1.0)
-        smoother.accumulate(deltaY: scrollY, deltaX: 0)
+        let scrollX = Double(deltaX) * basePx * acceleration * (natural ? -1.0 : 1.0)
+        smoother.accumulate(deltaY: scrollY, deltaX: scrollX)
     }
 
     // MARK: - Marker to Identify Synthetic Events

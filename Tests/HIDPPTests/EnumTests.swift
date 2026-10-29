@@ -207,7 +207,7 @@ struct BacklightConfigTests {
     @Test func autoSupported() {
         let config1 = BacklightFeature.BacklightConfig(
             enabled: true, options: 0, supported: 0x08,
-            mode: .automatic, level: 0, dho: 0, dhi: 0, dpow: 0
+            mode: .automatic, level: 0, dho: 0, dhi: 0, dpow: 0, dnot: 0
         )
         #expect(config1.autoSupported == true)
         #expect(config1.tempSupported == false)
@@ -217,7 +217,7 @@ struct BacklightConfigTests {
     @Test func tempSupported() {
         let config = BacklightFeature.BacklightConfig(
             enabled: true, options: 0, supported: 0x10,
-            mode: .temporary, level: 0, dho: 0, dhi: 0, dpow: 0
+            mode: .temporary, level: 0, dho: 0, dhi: 0, dpow: 0, dnot: 0
         )
         #expect(config.autoSupported == false)
         #expect(config.tempSupported == true)
@@ -227,7 +227,7 @@ struct BacklightConfigTests {
     @Test func permSupported() {
         let config = BacklightFeature.BacklightConfig(
             enabled: true, options: 0, supported: 0x20,
-            mode: .manual, level: 5, dho: 0, dhi: 0, dpow: 0
+            mode: .manual, level: 5, dho: 0, dhi: 0, dpow: 0, dnot: 0
         )
         #expect(config.autoSupported == false)
         #expect(config.tempSupported == false)
@@ -237,7 +237,7 @@ struct BacklightConfigTests {
     @Test func allSupported() {
         let config = BacklightFeature.BacklightConfig(
             enabled: true, options: 0, supported: 0x38,
-            mode: .manual, level: 5, dho: 0, dhi: 0, dpow: 0
+            mode: .manual, level: 5, dho: 0, dhi: 0, dpow: 0, dnot: 0
         )
         #expect(config.autoSupported == true)
         #expect(config.tempSupported == true)

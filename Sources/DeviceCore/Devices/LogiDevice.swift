@@ -66,10 +66,16 @@ class LogiDevice: Identifiable, @unchecked Sendable {
     var backlightDho: UInt16 = 0
     var backlightDhi: UInt16 = 0
     var backlightDpow: UInt16 = 0
+    var backlightDnot: UInt16 = 0
     var fnFid: UInt16?
+    var fnFeatureIndex: UInt8?
     var fnDefaultState: UInt8 = 0
+    /// Throttles event-driven Fn-state refreshes (Fn+Esc broadcasts).
+    var lastFnRefresh: Date?
     var hiResScrollFeatureIndex: UInt8?
     var hiResMultiplier: Int = 8
+    /// Firmware-owned bytes echoed on every wheel-mode write.
+    var hiResExtensionBytes: [UInt8] = [0, 0]
     /// Resolved battery feature index for live InfoUpdate routing.
     var batteryFeatureIndex: UInt8?
     /// Thumbwheel reporting mode read at load. Commits preserve it — we only
@@ -278,6 +284,17 @@ class LogiDevice: Identifiable, @unchecked Sendable {
             if now.timeIntervalSince(lastSmartShiftRefresh ?? .distantPast) > 0.3 {
                 lastSmartShiftRefresh = now
                 Task { await CapabilityHandlers.refreshWheelMode(on: self) }
+            }
+            return
+        }
+
+        // Fn+Esc toggles inversion on the keyboard itself; re-read it so the
+        // toggle does not lie.
+        if let fnIdx = fnFeatureIndex, featureIndex == fnIdx {
+            let now = Date()
+            if now.timeIntervalSince(lastFnRefresh ?? .distantPast) > 0.3 {
+                lastFnRefresh = now
+                Task { await CapabilityHandlers.refreshFnState(on: self) }
             }
             return
         }

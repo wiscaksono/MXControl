@@ -62,6 +62,8 @@ public enum BacklightFeature {
         public let dhi: UInt16
         /// Duration powered (in 5-second units, LE).
         public let dpow: UInt16
+        /// Duration not powered (in 5-second units, LE).
+        public let dnot: UInt16
 
         /// Whether auto-brightness is supported.
         public var autoSupported: Bool { (supported & 0x08) != 0 }
@@ -117,6 +119,10 @@ public enum BacklightFeature {
         let dpow: UInt16 = params.count > 11
             ? (UInt16(params[11]) << 8) | UInt16(params[10])
             : 0
+        // dnot at [12-13] LE
+        let dnot: UInt16 = params.count > 13
+            ? (UInt16(params[13]) << 8) | UInt16(params[12])
+            : 0
 
         let modeRaw = Int((options >> 3) & 0x03)
         let mode = BacklightMode(rawValue: modeRaw) ?? .off
@@ -129,7 +135,8 @@ public enum BacklightFeature {
             level: level,
             dho: dho,
             dhi: dhi,
-            dpow: dpow
+            dpow: dpow,
+            dnot: dnot
         )
     }
 
@@ -146,7 +153,8 @@ public enum BacklightFeature {
             level: level,
             dho: 0,
             dhi: 0,
-            dpow: 0
+            dpow: 0,
+            dnot: 0
         )
     }
 
@@ -204,7 +212,8 @@ public enum BacklightFeature {
         currentOptions: UInt8,
         dho: UInt16,
         dhi: UInt16,
-        dpow: UInt16
+        dpow: UInt16,
+        dnot: UInt16
     ) async throws {
         if featureId == featureIdV2 {
             try await setBacklightV2(
@@ -217,7 +226,8 @@ public enum BacklightFeature {
                 currentOptions: currentOptions,
                 dho: dho,
                 dhi: dhi,
-                dpow: dpow
+                dpow: dpow,
+                dnot: dnot
             )
         } else {
             try await setBacklightV3(
@@ -243,7 +253,8 @@ public enum BacklightFeature {
         currentOptions: UInt8,
         dho: UInt16,
         dhi: UInt16,
-        dpow: UInt16
+        dpow: UInt16,
+        dnot: UInt16
     ) async throws {
         // Rebuild options byte: preserve low 3 bits, set mode in bits [4:3]
         let options = (currentOptions & 0x07) | (UInt8(mode.rawValue) << 3)

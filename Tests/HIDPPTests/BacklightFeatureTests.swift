@@ -118,7 +118,7 @@ struct BacklightFeatureTests {
             featureId: BacklightFeature.featureIdV2,
             enabled: true, mode: .manual, level: 5,
             currentOptions: 0x05, // preserve low 3 bits = 0x05
-            dho: 60, dhi: 120, dpow: 180
+            dho: 60, dhi: 120, dpow: 180, dnot: 0
         )
 
         let sent = mock.sentRequests[0]
@@ -143,7 +143,7 @@ struct BacklightFeatureTests {
             transport: mock, deviceIndex: 0x01, featureIndex: 0x07,
             featureId: BacklightFeature.featureIdV2,
             enabled: true, mode: .automatic, level: 5,
-            currentOptions: 0x00, dho: 0, dhi: 0, dpow: 0
+            currentOptions: 0x00, dho: 0, dhi: 0, dpow: 0, dnot: 0
         )
 
         let sent = mock.sentRequests[0]
@@ -163,7 +163,7 @@ struct BacklightFeatureTests {
             transport: mock, deviceIndex: 0x01, featureIndex: 0x07,
             featureId: BacklightFeature.featureIdV3,
             enabled: true, mode: .manual, level: 7,
-            currentOptions: 0, dho: 0, dhi: 0, dpow: 0
+            currentOptions: 0, dho: 0, dhi: 0, dpow: 0, dnot: 0
         )
 
         let sent = mock.sentRequests[0]
@@ -179,7 +179,7 @@ struct BacklightFeatureTests {
             transport: mock, deviceIndex: 0x01, featureIndex: 0x07,
             featureId: BacklightFeature.featureIdV3,
             enabled: false, mode: .off, level: 0,
-            currentOptions: 0, dho: 0, dhi: 0, dpow: 0
+            currentOptions: 0, dho: 0, dhi: 0, dpow: 0, dnot: 0
         )
 
         let sent = mock.sentRequests[0]

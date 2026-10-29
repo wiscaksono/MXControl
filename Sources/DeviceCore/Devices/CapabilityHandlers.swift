@@ -207,6 +207,43 @@ enum CapabilityHandlers {
         }
     }
 
+    /// Re-read Fn inversion without writing anything back. Fn+Esc changes it
+    /// on the keyboard and broadcasts an event; the saved preference must not
+    /// fight that.
+    static func refreshFnState(on device: LogiDevice) async {
+        guard let fid = device.fnFid else { return }
+        do {
+            let idx = try await device.featureIndexCache.resolve(
+                featureId: fid,
+                transport: device.transport,
+                deviceIndex: device.deviceIndex
+            )
+            let state = try await FnInversionFeature.getState(
+                transport: device.transport,
+                deviceIndex: device.deviceIndex,
+                featureIndex: idx,
+                featureId: fid
+            )
+            let wantStandard = !state.fnInverted
+            let previous = device.toggles[CapabilityID.fnStandardKeys]?.value
+
+            device.fnDefaultState = state.defaultState
+            device.fnFeatureIndex = idx
+            device.toggles[CapabilityID.fnStandardKeys]?.value = wantStandard
+
+            if previous != wantStandard {
+                SettingsStore.saveValue(
+                    wantStandard,
+                    CapabilityID.fnStandardKeys,
+                    scope: device.settingScope
+                )
+                NotificationCenter.default.post(name: .deviceStateChanged, object: nil)
+            }
+        } catch {
+            debugLog("[CapabilityHandlers] Fn state refresh failed: \(error)")
+        }
+    }
+
     // MARK: - Device-backed Loads
 
     private static func batteryIndex(on device: LogiDevice) async throws -> UInt8 {
@@ -375,7 +412,7 @@ enum CapabilityHandlers {
                 let echoed = try await SmartShiftFeature.setStatus(
                     transport: device.transport, deviceIndex: device.deviceIndex, featureIndex: idx,
                     wheelMode: mode,
-                    autoDisengage: active ? (savedTorque ?? 50) : 0,
+                    autoDisengage: active ? (savedTorque ?? 50) : 0xFF,
                     torque: savedTorque
                 )
                 mode = echoed.wheelMode
@@ -385,7 +422,7 @@ enum CapabilityHandlers {
                 let echoed = try await SmartShiftV1Feature.setStatus(
                     transport: device.transport, deviceIndex: device.deviceIndex, featureIndex: idx,
                     wheelMode: mode,
-                    autoDisengage: active ? 50 : 0,
+                    autoDisengage: active ? 50 : 0xFF,
                     autoDisengageDefault: nil
                 )
                 mode = echoed.wheelMode
@@ -448,6 +485,7 @@ enum CapabilityHandlers {
             device.backlightDho = config.dho
             device.backlightDhi = config.dhi
             device.backlightDpow = config.dpow
+            device.backlightDnot = config.dnot
             device.backlightMode = config.mode
             var maxLevel = 8
             if fid == BacklightFeature.featureIdV2,
@@ -490,6 +528,7 @@ enum CapabilityHandlers {
                 featureIndex: idx, featureId: fid
             )
             device.fnFid = fid
+            device.fnFeatureIndex = idx
             device.fnDefaultState = state.defaultState
 
             // UI sense: standard F-keys primary. Protocol sense is inverted.
@@ -618,7 +657,7 @@ enum CapabilityHandlers {
                     let status = try await SmartShiftV1Feature.setStatus(
                         transport: device.transport, deviceIndex: device.deviceIndex,
                         featureIndex: idx, wheelMode: nil,
-                        autoDisengage: enabled ? 50 : 0, autoDisengageDefault: nil
+                        autoDisengage: enabled ? 50 : 0xFF, autoDisengageDefault: nil
                     )
                     device.segmented[CapabilityID.smartShiftWheelMode]?.selected = Int(status.wheelMode.rawValue)
                     echoedActive = isSmartShiftActive(status.autoDisengage)
@@ -627,7 +666,7 @@ enum CapabilityHandlers {
                     let status = try await SmartShiftFeature.setStatus(
                         transport: device.transport, deviceIndex: device.deviceIndex,
                         featureIndex: idx, wheelMode: nil,
-                        autoDisengage: enabled ? (torque ?? 50) : 0, torque: nil
+                        autoDisengage: enabled ? (torque ?? 50) : 0xFF, torque: nil
                     )
                     device.segmented[CapabilityID.smartShiftWheelMode]?.selected = Int(status.wheelMode.rawValue)
                     if status.torque > 0 {
@@ -665,7 +704,8 @@ enum CapabilityHandlers {
                     transport: device.transport, deviceIndex: device.deviceIndex,
                     featureIndex: idx,
                     target: target,
-                    hiRes: hiRes, inverted: inverted
+                    hiRes: hiRes, inverted: inverted,
+                    extensionBytes: device.hiResExtensionBytes
                 )
                 SettingsStore.saveValue(hiRes, CapabilityID.hiResEnabled, scope: device.settingScope)
                 SettingsStore.saveValue(inverted, CapabilityID.hiResInverted, scope: device.settingScope)
@@ -774,7 +814,8 @@ enum CapabilityHandlers {
             featureIndex: idx, featureId: fid,
             enabled: enabled, mode: mode, level: level,
             currentOptions: device.backlightOptions,
-            dho: device.backlightDho, dhi: device.backlightDhi, dpow: device.backlightDpow
+            dho: device.backlightDho, dhi: device.backlightDhi, dpow: device.backlightDpow,
+            dnot: device.backlightDnot
         )
         device.toggles[CapabilityID.backlightEnabled]?.value = enabled
         device.backlightMode = mode

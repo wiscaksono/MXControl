@@ -45,6 +45,7 @@ final class ScrollBehavior: DeviceBehavior {
                 deviceIndex: device.deviceIndex,
                 featureIndex: idx
             )
+            device.hiResExtensionBytes = mode.extensionBytes
             // Saved prefs win over hardware so reconnects restore settings.
             var hiRes = mode.hiRes
             var inverted = mode.inverted
@@ -118,7 +119,8 @@ final class ScrollBehavior: DeviceBehavior {
                 featureIndex: idx,
                 target: enabled,
                 hiRes: true,
-                inverted: inverted
+                inverted: inverted,
+                extensionBytes: device.hiResExtensionBytes
             )
             ScrollInterceptor.shared.hiResActive = enabled
             logger.info("[ScrollBehavior] HiRes target set to \(enabled ? "HID++" : "HID")")

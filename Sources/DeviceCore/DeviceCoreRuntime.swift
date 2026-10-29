@@ -37,6 +37,16 @@ public final class DeviceCoreRuntime {
         ScrollInterceptor.shared.retryIfNeeded()
     }
 
+    /// Current system mute state, synced from CoreAudio.
+    public var isMicMuted: Bool {
+        MicMuteEngine.shared.isMuted
+    }
+
+    /// Best-effort cleanup before the process exits.
+    public func shutdown() {
+        MicMuteEngine.shared.restoreForTermination()
+    }
+
     public func scan() async -> DeviceSnapshot {
         if manager.devices.isEmpty, !manager.isScanning {
             manager.startDiscovery()

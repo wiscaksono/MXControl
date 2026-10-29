@@ -322,3 +322,37 @@ struct DeviceDescriptorTests {
         #expect(descriptor.thumbGesture == nil)
     }
 }
+
+@Suite("MicMuteTermination")
+struct MicMuteTerminationTests {
+    @Test func quittingRestoresMutedDevices() {
+        let backend = MockMicMuteBackend()
+        backend.devices = [7: .init(hasMute: true, volume: 0.8)]
+        let engine = MicMuteEngine(backend: backend)
+        engine.debounceInterval = 0
+
+        engine.setMuted(true)
+        #expect(engine.isMuted == true)
+        #expect(backend.mutedState[7] == true)
+
+        engine.restoreForTermination()
+
+        #expect(engine.isMuted == false)
+        #expect(backend.mutedState[7] == false)
+    }
+
+    @Test func quittingLeavesUserMutedDeviceMuted() {
+        let backend = MockMicMuteBackend()
+        backend.devices = [7: .init(hasMute: true, volume: 0.8)]
+        backend.mutedState[7] = true
+        let engine = MicMuteEngine(backend: backend)
+        engine.debounceInterval = 0
+
+        engine.setMuted(true)
+        engine.restoreForTermination()
+
+        // It was muted before we touched it; restoring must not unmute it.
+        #expect(backend.mutedState[7] == true)
+        #expect(engine.isMuted == false)
+    }
+}

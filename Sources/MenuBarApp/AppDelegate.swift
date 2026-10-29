@@ -13,11 +13,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         syncGeneralSettings()
         DeviceCoreRuntime.shared.start()
         MicMuteUI.presenter = MicMuteOverlay.shared
+        // Reflect a mic that was already muted before we launched.
+        MicMuteUI.presenter?.reflect(muted: DeviceCoreRuntime.shared.isMicMuted)
         menuBar = MenuBarController(model: AppModel.shared)
 
         Task { @MainActor in
             AppModel.shared.handle(.refresh)
         }
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        DeviceCoreRuntime.shared.shutdown()
+        MicMuteOverlay.shared.hideImmediately()
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {

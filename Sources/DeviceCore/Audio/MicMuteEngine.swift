@@ -270,6 +270,16 @@ final class MicMuteEngine: @unchecked Sendable {
 
     // MARK: - Device Monitoring
 
+    /// Best-effort cleanup on quit: never leave the system muted behind.
+    /// Restores pre-mute hardware state, then stops watching devices.
+    func restoreForTermination() {
+        stopDeviceMonitoring()
+        if isMuted {
+            setMuted(false)
+        }
+        pruneStaleState()
+    }
+
     /// Watch for audio device list changes so newly-connected mics are muted
     /// while the engine is in muted state. Idempotent, call once at launch.
     func startDeviceMonitoring() {

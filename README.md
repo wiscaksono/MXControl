@@ -55,6 +55,8 @@ a random UUID, so settings survive reconnects.
 
 ## Notes
 
+- Validated hardware: MX Master 3S and MX Keys Mini. Other Logitech devices
+  fall back to the generic descriptor and are untested.
 - Bundle id: `com.wiscaksono.mxcontrol`. Entitlements: USB, Bluetooth, HID.
 - `LSUIElement` keeps the app out of the Dock; the activation policy is always
   `.accessory`.

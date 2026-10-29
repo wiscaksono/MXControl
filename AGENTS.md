@@ -19,6 +19,9 @@ verification path.
 
 ## Boundaries
 
+- Hardware on hand: **MX Master 3S** and **MX Keys Mini** only. Do not claim
+  support for other Logitech devices without a real device to verify against,
+  and do not add descriptors for hardware nobody can test.
 - `AppCore` has no SwiftUI/AppKit imports. Models, `DeviceService`, and fixture
   data live there.
 - `AppRuntime` owns `AppModel`. It takes a `DeviceService` in its initializer,

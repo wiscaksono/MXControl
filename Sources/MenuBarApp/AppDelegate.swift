@@ -12,6 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         syncGeneralSettings()
         DeviceCoreRuntime.shared.start()
+        MicMuteUI.presenter = MicMuteOverlay.shared
         menuBar = MenuBarController(model: AppModel.shared)
 
         Task { @MainActor in

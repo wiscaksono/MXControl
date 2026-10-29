@@ -2,11 +2,8 @@ import AppCore
 import AppKit
 import AppRuntime
 import MenuBarUI
-import os
 import ServiceManagement
 import SwiftUI
-
-private let logger = Logger(subsystem: "com.wiscaksono.mxcontrol", category: "app")
 
 final class MenuBarController: NSObject {
     private let model: AppModel

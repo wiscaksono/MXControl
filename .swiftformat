@@ -5,4 +5,4 @@
 --wrapparameters before-first
 --stripunusedargs closure-only
 
---exclude Sources/HIDPP,Sources/DeviceCore,Tests/HIDPPTests,Tests/DeviceCoreTests
+--exclude Sources/HIDPP,Sources/DeviceCore,Sources/MenuBarApp/MicMuteOverlay.swift,Tests/HIDPPTests,Tests/DeviceCoreTests

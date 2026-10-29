@@ -3,6 +3,7 @@ excluded:
   - build
   - Sources/HIDPP
   - Sources/DeviceCore
+  - Sources/MenuBarApp/MicMuteOverlay.swift
   - Tests/HIDPPTests
   - Tests/DeviceCoreTests
 

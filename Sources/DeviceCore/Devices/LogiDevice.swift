@@ -271,9 +271,6 @@ class LogiDevice: Identifiable, @unchecked Sendable {
 
     /// Handle an unsolicited HID++ notification from the device.
     func handleNotification(featureIndex: UInt8, functionId: UInt8, params: [UInt8]) {
-        let hex = params.map { String(format: "%02X", $0) }.joined(separator: " ")
-        logger.notice("[Notify] feature=\(featureIndex) fn=\(functionId) params=[\(hex, privacy: .public)]")
-
         // SmartShift events fire when the physical mode-shift button is used.
         // The payload is not needed: any event means "re-read the status".
         if let shiftIdx = smartShiftFeatureIndex, featureIndex == shiftIdx {

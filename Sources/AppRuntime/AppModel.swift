@@ -228,6 +228,13 @@ public final class AppModel {
                 try? await Task.sleep(for: interval)
                 guard let self, !Task.isCancelled else { return }
                 guard isUIActive else { continue }
+                // Status can change while the onboarding screen is open (the
+                // user is in System Settings right now), so poll the cheap
+                // permission checks instead of the device.
+                if state.showsOnboarding {
+                    await refreshPermissions()
+                    continue
+                }
                 // A drag is still settling; a poll would fight the local value.
                 guard Date().timeIntervalSince(lastChangeAt) > 0.6,
                       let snapshot = await service.refresh() else { continue }

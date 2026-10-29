@@ -29,6 +29,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidBecomeActive(_ notification: Notification) {
         DeviceCoreRuntime.shared.retryScrollIfNeeded()
+        // Returning from System Settings should update the checkmarks at once.
+        Task { @MainActor in
+            await AppModel.shared.refreshPermissions()
+        }
     }
 
     private func syncGeneralSettings() {

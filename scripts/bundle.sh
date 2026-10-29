@@ -23,7 +23,9 @@ printf 'APPL????' > "$APP/Contents/PkgInfo"
 
 # No nested bundles yet, so one ad-hoc signature is enough. When helpers or
 # extensions show up, sign them first, then the outer app.
-codesign --force --sign - "$APP"
+codesign --force --sign - \
+	--entitlements scripts/Entitlements.plist \
+	"$APP"
 codesign --verify --strict "$APP"
 
 echo "bundled $APP"

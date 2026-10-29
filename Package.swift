@@ -3,8 +3,16 @@ import PackageDescription
 
 let package = Package(
     name: "MenuBarApp",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS(.v15)],
     targets: [
+        .target(
+            name: "HIDPP",
+            path: "Sources/HIDPP",
+            linkerSettings: [
+                .linkedFramework("IOKit"),
+                .linkedFramework("CoreBluetooth"),
+            ]
+        ),
         .target(name: "AppCore"),
         .target(
             name: "AppRuntime",
@@ -27,6 +35,7 @@ let package = Package(
             swiftSettings: [.defaultIsolation(MainActor.self)]
         ),
         .testTarget(name: "AppCoreTests", dependencies: ["AppCore"]),
+        .testTarget(name: "HIDPPTests", dependencies: ["HIDPP"], path: "Tests/HIDPPTests"),
         .testTarget(
             name: "AppRuntimeTests",
             dependencies: ["AppRuntime", "AppCore"],

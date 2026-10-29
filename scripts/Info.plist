@@ -7,13 +7,13 @@
 	<key>CFBundleExecutable</key>
 	<string>MenuBarApp</string>
 	<key>CFBundleIdentifier</key>
-	<string>dev.wisnu.menubarapp</string>
+	<string>com.wiscaksono.mxcontrol</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>MenuBarApp</string>
+	<string>MXControl</string>
 	<key>CFBundleDisplayName</key>
-	<string>MenuBarApp</string>
+	<string>MXControl</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -23,12 +23,16 @@
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.productivity</string>
 	<key>LSMinimumSystemVersion</key>
-	<string>14.0</string>
+	<string>15.0</string>
 	<key>LSUIElement</key>
 	<true/>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>MXControl talks to Logitech devices over Bluetooth.</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSHumanReadableCopyright</key>
 	<string>Copyright © 2026 Wisnu Wicaksono</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>MXControl mutes the microphone when you press the mic mute key.</string>
 </dict>
 </plist>

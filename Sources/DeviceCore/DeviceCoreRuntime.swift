@@ -219,24 +219,6 @@ public final class DeviceCoreRuntime {
             grouped[title]?.append(item)
         }
 
-        if device.battery.level > 0 {
-            let batteryItem = SettingItem(
-                id: "battery",
-                title: "Battery",
-                control: .info(
-                    value: device.battery.charging
-                        ? "\(device.battery.level)% · Charging"
-                        : "\(device.battery.level)% · On battery"
-                )
-            )
-            let title = "Device"
-            if grouped[title] == nil {
-                order.append(title)
-                grouped[title] = []
-            }
-            grouped[title]?.append(batteryItem)
-        }
-
         return order.map { title in
             SettingSection(
                 id: title.lowercased(),

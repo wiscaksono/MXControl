@@ -79,7 +79,7 @@ struct OnboardingScreen: View {
         VStack(alignment: .leading, spacing: 3) {
             Text("Set up permissions")
                 .font(.system(.callout, weight: .semibold))
-            Text("One at a time — each one unlocks a different part of MXControl.")
+            Text("One at a time. Each step unlocks a different part of MXControl.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -119,7 +119,7 @@ struct OnboardingScreen: View {
                permissions.inputMonitoring == .denied
             {
                 Text(
-                    "Still denied? Remove MXControl from the list and add it again — old entries stop matching after a re-sign."
+                    "Still denied? Remove MXControl from the list and add it again. Old entries stop matching after a re-sign."
                 )
                 .font(.system(size: 10))
                 .foregroundStyle(.tertiary)
@@ -136,33 +136,32 @@ struct OnboardingScreen: View {
     private var footer: some View {
         VStack(alignment: .leading, spacing: 6) {
             Button(primaryTitle, action: primaryAction)
-                .buttonStyle(FilledButtonStyle())
-                .frame(maxWidth: .infinity)
+                .buttonStyle(FilledButtonStyle(fullWidth: true))
 
-            HStack {
+            HStack(spacing: 6) {
                 if currentKind == .bluetooth {
                     if permissions.bluetooth == .denied {
-                        Button("Open Settings") {
+                        Button {
                             onAction(.openPermissionPane(.bluetooth))
+                        } label: {
+                            Label("Open Settings", systemImage: "gearshape")
                         }
-                        .buttonStyle(.plain)
-                        .font(.system(size: 10))
-                        .foregroundStyle(.secondary)
+                        .buttonStyle(SubtleButtonStyle())
                     } else {
-                        Button("Continue without Bluetooth") {
+                        Button {
                             onAction(.finishOnboardingWithoutBluetooth)
+                        } label: {
+                            Label("Skip Bluetooth", systemImage: "xmark")
                         }
-                        .buttonStyle(.plain)
-                        .font(.system(size: 10))
-                        .foregroundStyle(.secondary)
+                        .buttonStyle(SubtleButtonStyle())
                     }
                 } else {
-                    Button("Check again") {
+                    Button {
                         onAction(.refreshPermissions)
+                    } label: {
+                        Label("Check again", systemImage: "arrow.clockwise")
                     }
-                    .buttonStyle(.plain)
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
+                    .buttonStyle(SubtleButtonStyle())
                 }
 
                 Spacer()
@@ -170,12 +169,12 @@ struct OnboardingScreen: View {
                 if currentKind == .inputMonitoring,
                    permissions.status(for: .inputMonitoring) == .denied
                 {
-                    Button("Relaunch") {
+                    Button {
                         onAction(.relaunchApp)
+                    } label: {
+                        Label("Relaunch", systemImage: "arrow.triangle.2.circlepath")
                     }
-                    .buttonStyle(.plain)
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
+                    .buttonStyle(SubtleButtonStyle())
                 }
             }
         }

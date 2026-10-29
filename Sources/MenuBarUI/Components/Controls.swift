@@ -237,15 +237,33 @@ struct IconButtonStyle: ButtonStyle {
 }
 
 struct FilledButtonStyle: ButtonStyle {
+    var fullWidth = false
+
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.callout.weight(.semibold))
             .foregroundStyle(.white)
             .padding(.horizontal, 12)
+            .frame(maxWidth: fullWidth ? .infinity : nil)
             .frame(height: 26)
             .background(
                 RoundedRectangle(cornerRadius: Metric.controlCornerRadius, style: .continuous)
                     .fill(Color.accentColor.opacity(configuration.isPressed ? 0.75 : 1))
+            )
+            .contentShape(Rectangle())
+    }
+}
+
+struct SubtleButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 11, weight: .medium))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 8)
+            .frame(height: 24)
+            .background(
+                RoundedRectangle(cornerRadius: Metric.controlCornerRadius, style: .continuous)
+                    .fill(Color.primary.opacity(configuration.isPressed ? 0.12 : 0.07))
             )
             .contentShape(Rectangle())
     }

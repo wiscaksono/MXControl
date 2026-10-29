@@ -10,6 +10,7 @@ struct Fixture {
 let fixtures: [Fixture] = [
     Fixture(id: "root", state: DummyData.initialState()),
     Fixture(id: "root-empty", state: DummyData.emptyState()),
+    Fixture(id: "root-scanning", state: DummyData.scanningState()),
     Fixture(id: "root-warning", state: DummyData.warningState()),
     Fixture(id: "device-mouse", state: DummyData.initialState(route: .device(DummyData.mouseID))),
     Fixture(

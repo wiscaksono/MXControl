@@ -14,10 +14,14 @@ struct RootScreen: View {
     var body: some View {
         VStack(spacing: 10) {
             if let warning = state.warning {
-                WarningBanner(text: warning)
+                WarningBanner(text: warning) {
+                    onAction(.openPermissionSettings)
+                }
             }
             if state.devices.isEmpty {
-                EmptyStateView { onAction(.refresh) }
+                EmptyStateView(isScanning: state.isScanning) {
+                    onAction(.refresh)
+                }
             } else {
                 deviceList
             }
@@ -67,7 +71,7 @@ struct DeviceRow: View {
                     Text(device.name)
                         .font(.system(.callout, weight: .medium))
                         .lineLimit(1)
-                    Text("\(device.kind.label) · \(device.transport.label)")
+                    Text(subtitle)
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
@@ -76,34 +80,53 @@ struct DeviceRow: View {
 
                 BatteryPill(battery: device.battery)
 
-                Image(systemName: "chevron.right")
-                    .font(.caption2)
-                    .fontWeight(.semibold)
-                    .foregroundStyle(.quaternary)
+                if device.isConnected {
+                    Image(systemName: "chevron.right")
+                        .font(.caption2)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(.quaternary)
+                }
             }
             .padding(.horizontal, Metric.rowPadding)
-            .frame(height: 46)
+            .frame(minHeight: 46)
             .contentShape(Rectangle())
         }
         .buttonStyle(RowButtonStyle())
-        .background(Color.primary.opacity(isHovered ? 0.045 : 0))
+        .disabled(!device.isConnected)
+        .opacity(device.isConnected ? 1 : 0.55)
+        .background(Color.primary.opacity(isHovered && device.isConnected ? 0.045 : 0))
         .animation(.easeOut(duration: 0.08), value: isHovered)
         .onHover { isHovered = $0 }
+    }
+
+    private var subtitle: String {
+        if device.isConnected {
+            "\(device.kind.label) · \(device.transport.label)"
+        } else {
+            "\(device.kind.label) · Offline"
+        }
     }
 }
 
 struct WarningBanner: View {
     let text: String
+    let onOpenSettings: () -> Void
 
     var body: some View {
         HStack(alignment: .top, spacing: 6) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.caption2)
                 .foregroundStyle(.orange)
-            Text(text)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(text)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button("Open Settings", action: onOpenSettings)
+                    .buttonStyle(.plain)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.tint)
+            }
             Spacer(minLength: 0)
         }
         .padding(8)
@@ -115,23 +138,35 @@ struct WarningBanner: View {
 }
 
 struct EmptyStateView: View {
+    let isScanning: Bool
     let onScan: () -> Void
 
     var body: some View {
         VStack(spacing: 7) {
-            Image(systemName: "computermouse")
+            Image(systemName: "computermouse.fill")
                 .font(.title)
                 .fontWeight(.light)
                 .foregroundStyle(.tertiary)
             Text("No devices found")
                 .font(.system(.callout, weight: .semibold))
-            Text("Pair your MX device, then scan again.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-            Button("Scan again", action: onScan)
-                .buttonStyle(FilledButtonStyle())
-                .padding(.top, 4)
+            Text(
+                isScanning
+                    ? "Looking for paired MX devices…"
+                    : "Pair your MX device, then scan again."
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.center)
+            if isScanning {
+                Text("Scanning…")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 4)
+            } else {
+                Button("Scan again", action: onScan)
+                    .buttonStyle(FilledButtonStyle())
+                    .padding(.top, 4)
+            }
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 22)

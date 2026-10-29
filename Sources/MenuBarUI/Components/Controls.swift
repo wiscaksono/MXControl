@@ -71,7 +71,7 @@ struct SliderTrack: View {
                     .onEnded { _ in grabOffset = nil }
             )
         }
-        .frame(height: 16)
+        .frame(height: 24)
         .accessibilityElement()
         .accessibilityLabel(Text(label))
         .accessibilityValue(Text(spec.displayValue))

@@ -9,8 +9,9 @@ struct AppStateTests {
 
     @Test func dummyStateHasExpectedDevices() {
         let state = DummyData.initialState()
-        #expect(state.devices.map(\.name) == ["MX Master 3S", "MX Keys Mini"])
+        #expect(state.devices.map(\.name) == ["MX Master 3S", "MX Keys Mini", "MX Anywhere 3S"])
         #expect(state.details.count == 2)
+        #expect(state.devices.last?.isConnected == false)
         #expect(state.warning == nil)
         #expect(state.route == .root)
     }
@@ -21,6 +22,7 @@ struct AppStateTests {
 
         for device in state.devices {
             #expect((0 ... 100).contains(device.battery.level))
+            guard device.isConnected else { continue }
             let detail = try? #require(state.details[device.id])
             #expect(detail?.device.id == device.id)
             #expect(detail?.sections.isEmpty == false)
@@ -29,6 +31,21 @@ struct AppStateTests {
         for section in state.general {
             #expect(!section.items.isEmpty)
         }
+    }
+
+    @Test func scanCycleReplacesDevices() {
+        var state = DummyData.warningState()
+        state.devices = []
+        state.details = [:]
+
+        state.beginScan()
+        #expect(state.isScanning)
+        #expect(state.warning == nil)
+
+        state.finishScan(devices: DummyData.devices, details: DummyData.details)
+        #expect(!state.isScanning)
+        #expect(state.devices.count == 3)
+        #expect(state.details.count == 2)
     }
 
     @Test func toggleFlipsSetting() {
@@ -113,7 +130,7 @@ struct AppStateTests {
         let data = try #require(SelfCheck.payload().data(using: .utf8))
         let report = try JSONDecoder().decode(SelfCheckReport.self, from: data)
         #expect(report.status == "ok")
-        #expect(report.devices == 2)
+        #expect(report.devices == 3)
         #expect(report.route == "root")
         #expect(report == SelfCheck.report())
     }

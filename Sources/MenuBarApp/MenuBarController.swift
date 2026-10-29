@@ -86,11 +86,36 @@ final class MenuBarController: NSObject {
     }
 
     private func handle(_ action: UIAction) {
-        if action == .quit {
+        switch action {
+        case .quit:
             NSApp.terminate(nil)
-        } else {
+        case .openPermissionSettings:
+            openPermissionSettings()
+        case let .activate(itemID) where itemID == "general.reset":
+            confirmReset()
+        default:
             model.handle(action)
         }
+    }
+
+    private func confirmReset() {
+        popover.performClose(nil)
+
+        let alert = NSAlert()
+        alert.messageText = "Reset all settings?"
+        alert.informativeText = "Every toggle, slider, and picker goes back to its default."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Reset")
+        alert.addButton(withTitle: "Cancel")
+
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        model.handle(.resetAll)
+    }
+
+    private func openPermissionSettings() {
+        let target = "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent"
+        guard let url = URL(string: target) else { return }
+        NSWorkspace.shared.open(url)
     }
 }
 

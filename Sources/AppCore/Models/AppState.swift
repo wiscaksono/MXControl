@@ -14,6 +14,8 @@ public enum UIAction: Equatable, Sendable {
     case setSlider(itemID: String, value: Double)
     case selectOption(itemID: String, index: Int)
     case activate(itemID: String)
+    case resetAll
+    case openPermissionSettings
     case refresh
     case quit
 }
@@ -24,6 +26,7 @@ public struct AppState: Equatable, Sendable {
     public var details: [UUID: DeviceDetail]
     public var general: [SettingSection]
     public var warning: String?
+    public var isScanning: Bool
     public var version: String
 
     public init(
@@ -32,6 +35,7 @@ public struct AppState: Equatable, Sendable {
         details: [UUID: DeviceDetail] = [:],
         general: [SettingSection] = [],
         warning: String? = nil,
+        isScanning: Bool = false,
         version: String = "0.0.0"
     ) {
         self.route = route
@@ -39,7 +43,19 @@ public struct AppState: Equatable, Sendable {
         self.details = details
         self.general = general
         self.warning = warning
+        self.isScanning = isScanning
         self.version = version
+    }
+
+    public mutating func beginScan() {
+        isScanning = true
+        warning = nil
+    }
+
+    public mutating func finishScan(devices: [DeviceSummary], details: [UUID: DeviceDetail]) {
+        self.devices = devices
+        self.details = details
+        isScanning = false
     }
 
     public var activeDetail: DeviceDetail? {

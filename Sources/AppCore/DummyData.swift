@@ -5,6 +5,7 @@ import Foundation
 public enum DummyData {
     public static let mouseID = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
     public static let keyboardID = UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
+    public static let offlineID = UUID(uuidString: "33333333-3333-3333-3333-333333333333")!
 
     public static let version = "0.2.0 (dummy)"
 
@@ -24,11 +25,28 @@ public enum DummyData {
         battery: BatteryState(level: 65, isCharging: true)
     )
 
+    public static let offline = DeviceSummary(
+        id: offlineID,
+        name: "MX Anywhere 3S",
+        kind: .mouse,
+        transport: .ble,
+        battery: BatteryState(level: 42, isCharging: false),
+        isConnected: false
+    )
+
+    public static var devices: [DeviceSummary] {
+        [mouse, keyboard, offline]
+    }
+
+    public static var details: [UUID: DeviceDetail] {
+        [mouseID: mouseDetail, keyboardID: keyboardDetail]
+    }
+
     public static func initialState(route: Route = .root) -> AppState {
         AppState(
             route: route,
-            devices: [mouse, keyboard],
-            details: [mouseID: mouseDetail, keyboardID: keyboardDetail],
+            devices: devices,
+            details: details,
             general: generalSettings,
             version: version
         )
@@ -36,6 +54,12 @@ public enum DummyData {
 
     public static func emptyState() -> AppState {
         AppState(devices: [], details: [:], general: generalSettings, version: version)
+    }
+
+    public static func scanningState() -> AppState {
+        var state = emptyState()
+        state.isScanning = true
+        return state
     }
 
     public static func warningState() -> AppState {

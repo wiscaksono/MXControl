@@ -108,7 +108,6 @@ public struct PopoverView: View {
         )
         .compositingGroup()
         .clipped()
-        .focusEffectDisabled()
     }
 
     private var headerTitle: String {
@@ -122,7 +121,7 @@ public struct PopoverView: View {
     @ViewBuilder
     private var headerAccessory: some View {
         switch state.route {
-        case .root:
+        case .root, .device:
             Button {
                 onAction(.openGeneral)
             } label: {
@@ -130,7 +129,7 @@ public struct PopoverView: View {
             }
             .buttonStyle(IconButtonStyle())
             .help("Settings")
-        case .device, .general:
+        case .general:
             EmptyView()
         }
     }
@@ -210,13 +209,9 @@ public struct PopoverView: View {
                 Image(systemName: "arrow.clockwise")
             }
             .buttonStyle(IconButtonStyle())
-            .help("Rescan")
-
-            Spacer()
-
-            Text(state.version)
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
+            .disabled(state.isScanning)
+            .opacity(state.isScanning ? 0.4 : 1)
+            .help(state.isScanning ? "Scanning…" : "Rescan")
 
             Spacer()
 
@@ -230,7 +225,6 @@ public struct PopoverView: View {
         }
         .padding(.horizontal, 4)
         .frame(height: Metric.footerHeight)
-        .focusEffectDisabled()
     }
 }
 

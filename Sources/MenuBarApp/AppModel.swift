@@ -5,6 +5,7 @@ import Observation
 @Observable
 final class AppModel {
     private(set) var state: AppState
+    private var scanTask: Task<Void, Never>?
 
     init(state: AppState = DummyData.initialState()) {
         self.state = state
@@ -24,8 +25,12 @@ final class AppModel {
             state.setSlider(itemID, to: value)
         case let .selectOption(itemID, index):
             state.selectOption(itemID, index: index)
-        case let .activate(itemID):
-            activate(itemID)
+        case .activate:
+            break // action rows are confirmed by the controller first
+        case .resetAll:
+            state = DummyData.initialState(route: state.route)
+        case .openPermissionSettings:
+            break // handled in the app layer, which owns NSWorkspace
         case .refresh:
             refresh()
         case .quit:
@@ -33,16 +38,16 @@ final class AppModel {
         }
     }
 
-    private func activate(_ itemID: String) {
-        // Dummy: the only action row throws away all edits.
-        if itemID == "general.reset" {
-            state = DummyData.initialState(route: .general)
-        }
-    }
-
     private func refresh() {
-        // Dummy data: pretend a rescan succeeded.
-        state.warning = nil
+        guard !state.isScanning else { return }
+        state.beginScan()
+
+        scanTask?.cancel()
+        scanTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(600))
+            guard !Task.isCancelled else { return }
+            state.finishScan(devices: DummyData.devices, details: DummyData.details)
+        }
     }
 }
 

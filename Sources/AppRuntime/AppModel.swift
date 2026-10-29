@@ -122,8 +122,6 @@ public final class AppModel {
             Task { @MainActor in
                 await refreshPermissions()
             }
-        case .skipOnboarding:
-            completeOnboarding()
         case .resumeOnboarding:
             onboardingResumed = true
             state.showsOnboarding = true

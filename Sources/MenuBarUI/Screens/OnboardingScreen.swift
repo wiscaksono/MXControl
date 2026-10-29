@@ -184,8 +184,8 @@ struct OnboardingScreen: View {
     private var footer: some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack {
-                Button("Set up later") {
-                    onAction(.skipOnboarding)
+                Button("Check again") {
+                    onAction(.refreshPermissions)
                 }
                 .buttonStyle(.plain)
                 .font(.caption)

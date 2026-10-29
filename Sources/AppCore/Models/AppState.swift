@@ -20,8 +20,8 @@ public enum UIAction: Equatable, Sendable {
     case openPermissionPane(PermissionKind)
     case relaunchApp
     case refreshPermissions
-    case resumeOnboarding
     case finishOnboarding
+    case finishOnboardingWithoutBluetooth
     case refresh
     case quit
 }

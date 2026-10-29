@@ -27,8 +27,9 @@ public struct SystemPermissions: PermissionsService {
             let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
             _ = AXIsProcessTrustedWithOptions(options)
         case .bluetooth:
-            // No direct prompt API; CoreBluetooth asks when discovery starts.
-            break
+            await MainActor.run {
+                BluetoothPrompter.shared.prompt()
+            }
         }
     }
 
@@ -53,4 +54,22 @@ public struct SystemPermissions: PermissionsService {
         default: .unknown
         }
     }
+}
+
+
+/// CoreBluetooth only shows its prompt when a central manager is created, so
+/// the Bluetooth step asks through this short-lived manager instead of waiting
+/// for the device scanner to start.
+@MainActor
+private final class BluetoothPrompter: NSObject, CBCentralManagerDelegate {
+    static let shared = BluetoothPrompter()
+
+    private var manager: CBCentralManager?
+
+    func prompt() {
+        guard manager == nil else { return }
+        manager = CBCentralManager(delegate: self, queue: .main)
+    }
+
+    nonisolated func centralManagerDidUpdateState(_ central: CBCentralManager) {}
 }

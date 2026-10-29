@@ -44,7 +44,7 @@ struct OnboardingScreen: View {
         }
         .padding(.horizontal, Metric.horizontalPadding)
         .onChange(of: permissions) { _, state in
-            guard state.requiredGranted, state.bluetooth == .granted || bluetoothSkipped else {
+            guard state.requiredGranted, state.bluetooth != .unknown || bluetoothSkipped else {
                 return
             }
             scheduleFinish()
@@ -120,13 +120,22 @@ struct OnboardingScreen: View {
 
             HStack {
                 if currentKind == .bluetooth {
-                    Button("Continue without Bluetooth") {
-                        bluetoothSkipped = true
-                        onAction(.finishOnboarding)
+                    if permissions.bluetooth == .denied {
+                        Button("Open Settings") {
+                            onAction(.openPermissionPane(.bluetooth))
+                        }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                    } else {
+                        Button("Continue without Bluetooth") {
+                            bluetoothSkipped = true
+                            onAction(.finishOnboardingWithoutBluetooth)
+                        }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
                     }
-                    .buttonStyle(.plain)
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
                 } else {
                     Button("Check again") {
                         onAction(.refreshPermissions)

@@ -19,10 +19,6 @@ public final class AppModel {
     private var changeGeneration = 0
     private var lastChangeAt = Date.distantPast
     private var isUIActive = false
-    /// The user asked to reopen onboarding after skipping it.
-    private var onboardingResumed = false
-
-    private static let onboardingCompletedKey = "onboardingCompleted"
 
     public init(
         state: AppState = DummyData.initialState(),
@@ -44,29 +40,30 @@ public final class AppModel {
     /// required ones are in place.
     public func start() async {
         await refreshPermissions()
-        if !state.showsOnboarding {
-            refresh()
+        guard state.permissions.requiredGranted else {
+            state.showsOnboarding = true
+            return
         }
-    }
-
-    public func refreshPermissions() async {
-        let wasOnboarding = state.showsOnboarding
-        state.permissions = await permissions.status()
-        state.showsOnboarding = !state.permissions.requiredGranted
-            && (!onboardingCompleted || onboardingResumed)
-        if wasOnboarding, !state.showsOnboarding, state.devices.isEmpty, !state.isScanning {
-            refresh()
-        }
-    }
-
-    private var onboardingCompleted: Bool {
-        UserDefaults.standard.bool(forKey: Self.onboardingCompletedKey)
-    }
-
-    private func completeOnboarding() {
-        UserDefaults.standard.set(true, forKey: Self.onboardingCompletedKey)
-        onboardingResumed = false
         state.showsOnboarding = false
+        refresh()
+    }
+
+    /// Permissions are the single source of truth: if a required grant is
+    /// missing, onboarding stays up and discovery stays off.
+    public func refreshPermissions() async {
+        state.permissions = await permissions.status()
+        if !state.permissions.requiredGranted {
+            state.showsOnboarding = true
+        }
+    }
+
+    private func finishOnboarding() {
+        guard state.permissions.requiredGranted else {
+            state.showsOnboarding = true
+            return
+        }
+        state.showsOnboarding = false
+        refresh()
     }
 
     /// A physical control (mode-shift button, battery event) can change device
@@ -122,12 +119,8 @@ public final class AppModel {
             Task { @MainActor in
                 await refreshPermissions()
             }
-        case .resumeOnboarding:
-            onboardingResumed = true
-            state.showsOnboarding = true
-        case .finishOnboarding:
-            completeOnboarding()
-            refresh()
+        case .finishOnboarding, .finishOnboardingWithoutBluetooth:
+            finishOnboarding()
         case .refresh:
             refresh()
         case .quit:
@@ -136,6 +129,10 @@ public final class AppModel {
     }
 
     private func refresh() {
+        guard state.permissions.requiredGranted else {
+            state.showsOnboarding = true
+            return
+        }
         guard !state.isScanning else { return }
         state.beginScan()
 
@@ -219,7 +216,7 @@ public final class AppModel {
 
         Task { @MainActor in
             await refreshPermissions()
-            guard let snapshot = await service.refresh() else { return }
+            guard !state.showsOnboarding, let snapshot = await service.refresh() else { return }
             adoptIfChanged(snapshot)
         }
     }

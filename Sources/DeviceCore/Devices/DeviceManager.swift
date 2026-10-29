@@ -22,6 +22,9 @@ final class DeviceManager {
     var devices: [LogiDevice] = []
     var isScanning: Bool = false
     var statusMessage: String = "Idle"
+    /// Cleared when the user continues without Bluetooth; IOKit and USB still
+    /// work, only the CoreBluetooth scanner is skipped.
+    var useBluetooth: Bool = true
 
     // MARK: - Private
 
@@ -181,7 +184,9 @@ final class DeviceManager {
         }
 
         // Start CoreBluetooth scanner in parallel — handles BLE devices that IOKit can't access
-        startBLEScanner()
+        if useBluetooth {
+            startBLEScanner()
+        }
 
         // F9 fallback tap fires the same engine + overlay as the HID++ divert path.
         // Debounce inside the engine guards against double-fire when both trigger.

@@ -204,16 +204,24 @@ struct AppModelUIActivityTests {
 
 @MainActor
 struct AppModelOnboardingTests {
-    private struct MissingPermissions: PermissionsService {
-        nonisolated func status() async -> PermissionState {
-            PermissionState(
-                inputMonitoring: .unknown,
-                accessibility: .unknown,
-                bluetooth: .granted
-            )
+    private actor GrantablePermissions: PermissionsService {
+        private var state = PermissionState(
+            inputMonitoring: .unknown,
+            accessibility: .unknown,
+            bluetooth: .granted
+        )
+
+        func status() async -> PermissionState {
+            state
         }
 
-        func request(_ kind: PermissionKind) async {}
+        func request(_ kind: PermissionKind) async {
+            state = .allGranted
+        }
+
+        func grantAll() {
+            state = .allGranted
+        }
     }
 
     private struct FullService: DeviceService {
@@ -223,17 +231,21 @@ struct AppModelOnboardingTests {
     }
 
     @Test func missingPermissionsGateDiscovery() async throws {
-        UserDefaults.standard.removeObject(forKey: "onboardingCompleted")
+        let permissions = GrantablePermissions()
         let model = AppModel(
             state: DummyData.emptyState(),
             service: FullService(),
-            permissions: MissingPermissions(),
+            permissions: permissions,
             scanDelay: .zero
         )
 
         await model.start()
         #expect(model.state.showsOnboarding)
         #expect(model.state.devices.isEmpty)
+
+        await permissions.grantAll()
+        await model.refreshPermissions()
+        #expect(model.state.showsOnboarding)
 
         model.handle(.finishOnboarding)
         try await Task.sleep(for: .milliseconds(200))

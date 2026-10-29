@@ -1,5 +1,6 @@
 import AppCore
 import ApplicationServices
+import CoreBluetooth
 import Foundation
 import HIDPP
 import IOKit.hid
@@ -18,12 +19,33 @@ public final class DeviceCoreRuntime {
     /// Permission prompts are deliberately not requested here; onboarding owns
     /// that so the user knows why the dialog appeared.
     public func start() {
+        applyBluetoothPreference()
         MicMuteEngine.shared.startDeviceMonitoring()
     }
 
-    /// Asked after onboarding completes, so the notification prompt does not
-    /// pile on top of the permission dialogs.
-    public func requestNotifications() {
+    private static let bluetoothDisabledKey = "bluetoothScanningDisabled"
+    private static let notificationsRequestedKey = "notificationsRequested"
+
+    /// The user chose "Continue without Bluetooth": skip the CoreBluetooth
+    /// scanner so macOS cannot prompt on the first scan.
+    public func finishOnboarding(bluetoothEnabled: Bool) {
+        UserDefaults.standard.set(!bluetoothEnabled, forKey: Self.bluetoothDisabledKey)
+        manager.useBluetooth = bluetoothEnabled
+    }
+
+    private func applyBluetoothPreference() {
+        let disabled = UserDefaults.standard.bool(forKey: Self.bluetoothDisabledKey)
+        // A later grant in System Settings should re-enable scanning even if
+        // the user skipped Bluetooth during onboarding.
+        let authorized = CBManager.authorization == .allowedAlways
+        manager.useBluetooth = authorized || !disabled
+    }
+
+    /// Requested once, the first time the user opens Settings, so the
+    /// notification prompt never stacks on top of the permission wizard.
+    public func requestNotificationsIfNeeded() {
+        guard !UserDefaults.standard.bool(forKey: Self.notificationsRequestedKey) else { return }
+        UserDefaults.standard.set(true, forKey: Self.notificationsRequestedKey)
         BatteryNotifier.setup()
     }
 

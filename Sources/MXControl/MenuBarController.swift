@@ -111,6 +111,8 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
         case .finishOnboarding:
             DeviceCoreRuntime.shared.requestNotifications()
             model.handle(action)
+        case .relaunchApp:
+            relaunch()
         case let .activate(itemID) where itemID == "general.reset":
             confirmReset()
         case let .toggle(itemID) where itemID == "general.launchAtLogin":
@@ -156,6 +158,17 @@ final class MenuBarController: NSObject, NSPopoverDelegate {
 
     private func openPermissionSettings() {
         openPermissionPane(.inputMonitoring)
+    }
+
+    private func relaunch() {
+        let config = NSWorkspace.OpenConfiguration()
+        config.createsNewApplicationInstance = true
+        NSWorkspace.shared.openApplication(at: Bundle.main.bundleURL, configuration: config) {
+            _, _ in
+            Task { @MainActor in
+                NSApp.terminate(nil)
+            }
+        }
     }
 
     private func openPermissionPane(_ kind: PermissionKind) {

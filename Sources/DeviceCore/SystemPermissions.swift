@@ -1,6 +1,7 @@
 import AppCore
 import ApplicationServices
 import CoreBluetooth
+import CoreGraphics
 import Foundation
 import IOKit.hid
 
@@ -20,6 +21,7 @@ public struct SystemPermissions: PermissionsService {
     public func request(_ kind: PermissionKind) async {
         switch kind {
         case .inputMonitoring:
+            _ = CGRequestListenEventAccess()
             _ = IOHIDRequestAccess(kIOHIDRequestTypeListenEvent)
         case .accessibility:
             let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
@@ -31,7 +33,13 @@ public struct SystemPermissions: PermissionsService {
     }
 
     private static var inputMonitoring: PermissionStatus {
-        switch IOHIDCheckAccess(kIOHIDRequestTypeListenEvent) {
+        // CGPreflight updates as soon as TCC records the grant; IOHIDCheckAccess
+        // can stay denied until the process restarts, so it only refines the
+        // "never asked" case.
+        if CGPreflightListenEventAccess() {
+            return .granted
+        }
+        return switch IOHIDCheckAccess(kIOHIDRequestTypeListenEvent) {
         case kIOHIDAccessTypeGranted: .granted
         case kIOHIDAccessTypeDenied: .denied
         default: .unknown

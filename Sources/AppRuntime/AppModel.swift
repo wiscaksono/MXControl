@@ -107,7 +107,7 @@ public final class AppModel {
                 guard let snapshot = await service.clearSettings() else { return }
                 adopt(snapshot)
             }
-        case .openPermissionSettings, .openPermissionPane:
+        case .openPermissionSettings, .openPermissionPane, .relaunchApp:
             break // handled in the app layer, which owns NSWorkspace
         case let .requestPermission(kind):
             Task { @MainActor in

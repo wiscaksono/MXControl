@@ -85,12 +85,20 @@ struct OnboardingScreen: View {
                 .font(.system(size: 13))
                 .foregroundStyle(.green)
         case .denied:
-            Button("Open Settings") {
-                onAction(.openPermissionPane(kind))
+            VStack(alignment: .trailing, spacing: 2) {
+                Button("Open Settings") {
+                    onAction(.openPermissionPane(kind))
+                }
+                .buttonStyle(.plain)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.tint)
+                Button("Relaunch") {
+                    onAction(.relaunchApp)
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 9))
+                .foregroundStyle(.secondary)
             }
-            .buttonStyle(.plain)
-            .font(.caption.weight(.medium))
-            .foregroundStyle(.tint)
         case .unknown:
             Button("Enable") {
                 onAction(.requestPermission(kind))

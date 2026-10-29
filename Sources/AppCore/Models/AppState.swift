@@ -2,12 +2,12 @@ import Foundation
 
 public enum Route: Equatable, Sendable, Hashable {
     case root
-    case device(UUID)
+    case device(DeviceID)
     case general
 }
 
 public enum UIAction: Equatable, Sendable {
-    case openDevice(UUID)
+    case openDevice(DeviceID)
     case openGeneral
     case back
     case toggle(itemID: String)
@@ -23,7 +23,7 @@ public enum UIAction: Equatable, Sendable {
 public struct AppState: Equatable, Sendable {
     public var route: Route
     public var devices: [DeviceSummary]
-    public var details: [UUID: DeviceDetail]
+    public var details: [DeviceID: DeviceDetail]
     public var general: [SettingSection]
     public var warning: String?
     public var isScanning: Bool
@@ -32,7 +32,7 @@ public struct AppState: Equatable, Sendable {
     public init(
         route: Route = .root,
         devices: [DeviceSummary] = [],
-        details: [UUID: DeviceDetail] = [:],
+        details: [DeviceID: DeviceDetail] = [:],
         general: [SettingSection] = [],
         warning: String? = nil,
         isScanning: Bool = false,
@@ -52,7 +52,7 @@ public struct AppState: Equatable, Sendable {
         warning = nil
     }
 
-    public mutating func finishScan(devices: [DeviceSummary], details: [UUID: DeviceDetail]) {
+    public mutating func finishScan(devices: [DeviceSummary], details: [DeviceID: DeviceDetail]) {
         self.devices = devices
         self.details = details
         isScanning = false

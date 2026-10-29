@@ -19,9 +19,16 @@ verification path.
 
 ## Boundaries
 
-- `AppCore` has no SwiftUI/AppKit imports. Models and dummy data live there.
+- `AppCore` has no SwiftUI/AppKit imports. Models, `DeviceService`, and fixture
+  data live there.
+- `AppRuntime` owns `AppModel`. It takes a `DeviceService` in its initializer,
+  so tests drive it with a stub instead of hardware.
+- Device identity is `DeviceID` (transport + unit id + serial), never a random
+  UUID, so settings survive a reconnect.
+- Hardware code lands behind `DeviceService`. Views must never import HID++.
 - Views take `AppState` and emit `UIAction`. No view reads a service or device.
-- `MenuBarApp` owns state mutation (`AppModel`) and process-level code.
+- `MenuBarApp` owns process-level code: status item, popover, alerts, and
+  opening system settings.
 - New screen or state: add a fixture in `Sources/Snapshot/main.swift`.
 - Scroll viewport height is measured from content and capped by screen height.
   Keep the `viewport ok` guard in the snapshot target; it catches the

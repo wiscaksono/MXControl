@@ -3,9 +3,9 @@ import Foundation
 /// Fake devices and settings so the UI can be built and reviewed without
 /// touching real hardware. Everything here is presentation data.
 public enum DummyData {
-    public static let mouseID = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
-    public static let keyboardID = UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
-    public static let offlineID = UUID(uuidString: "33333333-3333-3333-3333-333333333333")!
+    public static let mouseID = DeviceID(transport: .ble, unitID: 1, serial: "MX3S-0001")
+    public static let keyboardID = DeviceID(transport: .usb, unitID: 2, serial: "MXKM-0002")
+    public static let offlineID = DeviceID(transport: .ble, unitID: 3, serial: "MXAW-0003")
 
     public static let version = "0.2.0 (dummy)"
 
@@ -38,7 +38,7 @@ public enum DummyData {
         [mouse, keyboard, offline]
     }
 
-    public static var details: [UUID: DeviceDetail] {
+    public static var details: [DeviceID: DeviceDetail] {
         [mouseID: mouseDetail, keyboardID: keyboardDetail]
     }
 

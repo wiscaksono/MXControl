@@ -7,13 +7,18 @@ let package = Package(
     targets: [
         .target(name: "AppCore"),
         .target(
+            name: "AppRuntime",
+            dependencies: ["AppCore"],
+            swiftSettings: [.defaultIsolation(MainActor.self)]
+        ),
+        .target(
             name: "MenuBarUI",
             dependencies: ["AppCore"],
             swiftSettings: [.defaultIsolation(MainActor.self)]
         ),
         .executableTarget(
             name: "MenuBarApp",
-            dependencies: ["AppCore", "MenuBarUI"],
+            dependencies: ["AppCore", "AppRuntime", "MenuBarUI"],
             swiftSettings: [.defaultIsolation(MainActor.self)]
         ),
         .executableTarget(
@@ -22,5 +27,10 @@ let package = Package(
             swiftSettings: [.defaultIsolation(MainActor.self)]
         ),
         .testTarget(name: "AppCoreTests", dependencies: ["AppCore"]),
+        .testTarget(
+            name: "AppRuntimeTests",
+            dependencies: ["AppRuntime", "AppCore"],
+            swiftSettings: [.defaultIsolation(MainActor.self)]
+        ),
     ]
 )

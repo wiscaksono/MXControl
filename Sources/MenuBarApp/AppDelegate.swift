@@ -1,4 +1,5 @@
 import AppKit
+import AppRuntime
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var menuBar: MenuBarController?

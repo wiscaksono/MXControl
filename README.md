@@ -28,13 +28,15 @@ No hardware, no persistence, no HID++.
 ```
 Sources/
 ├── AppCore/
-│   ├── Models/       DeviceSummary, SettingControl, AppState, Route
-│   └── DummyData     fixtures that drive every screen
+│   ├── Models/       DeviceID, DeviceSummary, SettingControl, AppState, Route
+│   ├── DeviceService  protocol seam + dummy implementation
+│   └── DummyData      fixtures that drive every screen
+├── AppRuntime/       AppModel (state + actions, injectable service)
 ├── MenuBarUI/
 │   ├── Screens/      RootScreen, DeviceScreen, GeneralScreen
 │   ├── Components/   SettingsGroup, rows, controls, header, footer
 │   └── PopoverView   assembles a screen from AppState + UIAction
-├── MenuBarApp/       NSStatusItem + NSPopover shell, AppModel (state + actions)
+├── MenuBarApp/       NSStatusItem + NSPopover shell
 └── Snapshot/         renders fixtures offscreen to PNG
 ```
 

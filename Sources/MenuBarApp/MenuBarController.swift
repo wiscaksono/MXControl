@@ -1,5 +1,6 @@
 import AppCore
 import AppKit
+import AppRuntime
 import MenuBarUI
 import SwiftUI
 

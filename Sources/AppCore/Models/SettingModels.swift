@@ -85,7 +85,7 @@ public struct SettingSection: Identifiable, Equatable, Sendable {
 }
 
 public struct DeviceDetail: Identifiable, Equatable, Sendable {
-    public let id: UUID
+    public let id: DeviceID
     public var device: DeviceSummary
     public var connectionDetail: String
     public var sections: [SettingSection]

@@ -2,16 +2,27 @@ import AppCore
 import Foundation
 import Observation
 
+/// Coordinates app state. It owns the screen state and talks to a
+/// `DeviceService`; it never touches HID++ or AppKit.
 @Observable
-final class AppModel {
-    private(set) var state: AppState
+public final class AppModel {
+    public private(set) var state: AppState
+
+    private let service: any DeviceService
+    private let scanDelay: Duration
     private var scanTask: Task<Void, Never>?
 
-    init(state: AppState = DummyData.initialState()) {
+    public init(
+        state: AppState = DummyData.initialState(),
+        service: any DeviceService = DummyDeviceService(),
+        scanDelay: Duration = .milliseconds(600)
+    ) {
         self.state = state
+        self.service = service
+        self.scanDelay = scanDelay
     }
 
-    func handle(_ action: UIAction) {
+    public func handle(_ action: UIAction) {
         switch action {
         case let .openDevice(id):
             state.route = .device(id)
@@ -44,13 +55,17 @@ final class AppModel {
 
         scanTask?.cancel()
         scanTask = Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(600))
+            // Keep the scanning state visible even when the service is instant.
+            try? await Task.sleep(for: scanDelay)
             guard !Task.isCancelled else { return }
-            state.finishScan(devices: DummyData.devices, details: DummyData.details)
+
+            let snapshot = await service.scan()
+            guard !Task.isCancelled else { return }
+            state.finishScan(devices: snapshot.devices, details: snapshot.details)
         }
     }
 }
 
-extension AppModel {
+public extension AppModel {
     static let shared = AppModel()
 }

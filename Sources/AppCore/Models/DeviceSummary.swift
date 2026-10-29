@@ -22,7 +22,7 @@ public enum DeviceKind: String, Equatable, Sendable, CaseIterable {
     }
 }
 
-public enum TransportKind: String, Equatable, Sendable, CaseIterable {
+public enum TransportKind: String, Equatable, Sendable, Codable, CaseIterable {
     case usb
     case ble
 
@@ -50,7 +50,7 @@ public struct BatteryState: Equatable, Sendable {
 }
 
 public struct DeviceSummary: Identifiable, Equatable, Sendable {
-    public let id: UUID
+    public let id: DeviceID
     public var name: String
     public var kind: DeviceKind
     public var transport: TransportKind
@@ -58,7 +58,7 @@ public struct DeviceSummary: Identifiable, Equatable, Sendable {
     public var isConnected: Bool
 
     public init(
-        id: UUID,
+        id: DeviceID,
         name: String,
         kind: DeviceKind,
         transport: TransportKind,

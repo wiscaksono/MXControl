@@ -202,7 +202,7 @@ public final class AppModel {
 
 public extension AppModel {
     static let shared = AppModel(
-        state: AppState(general: DummyData.generalSettings, version: DummyData.version),
+        state: AppState(general: DummyData.generalSettings, version: AppVersion.current),
         service: HIDPPDeviceService()
     )
 }

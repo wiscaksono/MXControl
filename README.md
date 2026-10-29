@@ -1,19 +1,17 @@
 # MenuBarApp
 
-macOS menubar app scaffold, SwiftPM only. No Xcode project. The shell is
-`NSStatusItem` + `NSPopover`, so the popover keeps its anchor and arrow while
-its height changes between screens.
+macOS menubar app for Logitech MX devices. SwiftPM only, no Xcode project.
 
-The current UI is a recreation of MXControl (Logitech MX device control) with
-dummy data: device list, per-device settings, and a general settings screen.
-No hardware, no persistence, no HID++.
+The shell is `NSStatusItem` + `NSPopover` hosting SwiftUI. Device logic is
+ported from MXControl: HID++ 2.0 protocol, discovery over USB receivers and
+Bluetooth, capability handlers, scroll smoothing, thumb gestures, and mic mute.
 
 ## Commands
 
 | Command | Does |
 | --- | --- |
 | `make build` | `swift build` |
-| `make test` | headless unit tests for `AppCore` |
+| `make test` | all tests (protocol, device core, app model, state) |
 | `make selfcheck` | run the app binary with `--self-check`, prints JSON, no GUI |
 | `make snapshot` | render every screen fixture to `build/snapshots/*.png` |
 | `make verify` | build + test + selfcheck + snapshot + lint |
@@ -27,40 +25,39 @@ No hardware, no persistence, no HID++.
 
 ```
 Sources/
-├── AppCore/
-│   ├── Models/       DeviceID, DeviceSummary, SettingControl, AppState, Route
-│   ├── DeviceService  protocol seam + dummy implementation
-│   └── DummyData      fixtures that drive every screen
-├── AppRuntime/       AppModel (state + actions, injectable service)
-├── MenuBarUI/
-│   ├── Screens/      RootScreen, DeviceScreen, GeneralScreen
-│   ├── Components/   SettingsGroup, rows, controls, header, footer
-│   └── PopoverView   assembles a screen from AppState + UIAction
-├── MenuBarApp/       NSStatusItem + NSPopover shell
-└── Snapshot/         renders fixtures offscreen to PNG
+├── HIDPP/         HID++ 2.0 protocol, features, transports, tests (vendored)
+├── DeviceCore/    discovery, capability handlers, behaviors, settings store
+├── AppCore/       DeviceID, snapshots, presentation models, AppState
+├── AppRuntime/    AppModel, talks to a DeviceService
+├── MenuBarUI/     screens and custom-drawn controls
+├── MenuBarApp/    status item, popover, mic mute overlay, alerts
+└── Snapshot/      renders fixtures offscreen to PNG
 ```
 
-State flows one way: views get `AppState` and emit `UIAction`, `AppModel`
-mutates the state. No view touches a device or a service, which is what makes
-offscreen rendering possible.
+Views only see `AppState` and emit `UIAction`. `AppModel` forwards edits to
+`DeviceService`; `HIDPPDeviceService` turns live devices into `DeviceSnapshot`.
+The dummy service and fixtures keep screenshots and tests hardware-free.
 
-## Headless checks
+## Permissions
 
-`MenuBarApp --self-check` prints one JSON line with dummy state counts.
+- **Bluetooth** — required for direct BLE devices.
+- **Input Monitoring** — required for scroll interception and diverted keys.
+- **Microphone** — only for the mic mute HUD (no audio is recorded).
 
-`make snapshot` writes PNGs for every fixture in `Sources/Snapshot/main.swift`,
-light and dark. Read the PNG files to review layout without opening the app.
+Grant them in System Settings after the first launch; the permission warning
+in the popover links straight to the right pane.
+
+## Settings
+
+Stored in UserDefaults under `mxcontrol.{descriptor}.{unit}.{setting}`. Device
+identity is the descriptor id plus the HID++ unit id, never the device name or
+a random UUID, so settings survive reconnects.
 
 ## Notes
 
-- Bundle id lives in `scripts/Info.plist` (`dev.wisnu.menubarapp`).
-- `LSUIElement` hides the dock icon; `AppDelegate` also sets `.accessory` so
-  `swift run` behaves.
-- Controls are custom-drawn (switch, slider, segmented). Native AppKit-backed
-  controls do not render in `ImageRenderer`, which would make snapshots lie.
-- The popover measures its content and caps the scroll viewport to the screen
-  height; `make snapshot` fails if the scrollable path ever collapses to zero.
-- Ad-hoc signing is enough for local use. Distribution needs Developer ID,
-  hardened runtime, and `notarytool`.
-- For app extensions, login-item helpers, or Xcode previews, generate an
-  `xcodeproj` with XcodeGen from the same source tree.
+- Bundle id: `com.wiscaksono.mxcontrol`. Entitlements: USB, Bluetooth, HID.
+- `LSUIElement` hides the dock icon unless "Hide from Dock" is turned off.
+- Ad-hoc signing is enough locally. Changing the signing identity resets the
+  Input Monitoring grant, so pick the final identity before testing scroll.
+- `HIDPP` and `DeviceCore` are vendored from MXControl and excluded from
+  `swiftformat`/`swiftlint` to keep diffs honest.

@@ -26,6 +26,12 @@ verification path.
 - Device identity is `DeviceID` (transport + unit id + serial), never a random
   UUID, so settings survive a reconnect.
 - Hardware code lands behind `DeviceService`. Views must never import HID++.
+- `HIDPP` and `DeviceCore` are ported from MXControl and excluded from
+  `swiftformat`/`swiftlint`. Keep edits there minimal and mechanical.
+- Hardware writes go through `DeviceService.apply(_:)`; never mutate a live
+  device from the UI layer.
+- Settings keys are `mxcontrol.{descriptor}.{unit}.{setting}`. Never key by
+  device name or a random UUID.
 - Views take `AppState` and emit `UIAction`. No view reads a service or device.
 - `MenuBarApp` owns process-level code: status item, popover, alerts, and
   opening system settings.

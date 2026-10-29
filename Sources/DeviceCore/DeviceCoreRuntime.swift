@@ -125,6 +125,12 @@ public final class DeviceCoreRuntime {
         var order: [String] = []
 
         for capability in CapabilityID.allCases {
+            // Hidden capabilities (e.g. pointer speed) are loaded and saved but
+            // never rendered.
+            let isHidden = device.descriptor.capabilities
+                .first { $0.id == capability }?.hidden ?? false
+            if isHidden { continue }
+
             guard let item = item(for: capability, on: device) else { continue }
             let title = sectionTitle(for: capability)
             if grouped[title] == nil {

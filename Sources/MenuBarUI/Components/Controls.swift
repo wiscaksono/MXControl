@@ -195,9 +195,9 @@ struct SpinningIcon: View {
             SpinnerArc()
                 .stroke(
                     Color.secondary,
-                    style: StrokeStyle(lineWidth: 1.5, lineCap: .round)
+                    style: StrokeStyle(lineWidth: 1.25, lineCap: .round)
                 )
-                .frame(width: 13, height: 13)
+                .frame(width: 10, height: 10)
                 .rotationEffect(
                     .degrees(seconds.truncatingRemainder(dividingBy: 0.9) / 0.9 * 360)
                 )
@@ -207,7 +207,7 @@ struct SpinningIcon: View {
 
 private nonisolated struct SpinnerArc: Shape {
     func path(in rect: CGRect) -> Path {
-        let radius = min(rect.width, rect.height) / 2 - 0.75
+        let radius = min(rect.width, rect.height) / 2 - 0.625
         var path = Path()
         path.addArc(
             center: CGPoint(x: rect.midX, y: rect.midY),

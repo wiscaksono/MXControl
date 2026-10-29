@@ -192,7 +192,7 @@ struct SpinningIcon: View {
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
             let seconds = context.date.timeIntervalSinceReferenceDate
-            Image(systemName: "arrow.clockwise")
+            Image(systemName: "circle.dotted")
                 .rotationEffect(.degrees(seconds.truncatingRemainder(dividingBy: 1) * 360))
         }
     }

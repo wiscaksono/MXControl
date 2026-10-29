@@ -34,16 +34,18 @@ public struct SystemPermissions: PermissionsService {
     }
 
     private static var inputMonitoring: PermissionStatus {
-        // CGPreflight updates as soon as TCC records the grant; IOHIDCheckAccess
-        // can stay denied until the process restarts, so it only refines the
-        // "never asked" case.
-        if CGPreflightListenEventAccess() {
+        // A TCC grant only takes effect for a process that starts afterwards.
+        // IOHIDCheckAccess is the process-level truth; CGPreflight is the TCC
+        // record. Both must agree before we call this granted.
+        let effective = IOHIDCheckAccess(kIOHIDRequestTypeListenEvent)
+        switch effective {
+        case kIOHIDAccessTypeGranted:
             return .granted
-        }
-        return switch IOHIDCheckAccess(kIOHIDRequestTypeListenEvent) {
-        case kIOHIDAccessTypeGranted: .granted
-        case kIOHIDAccessTypeDenied: .denied
-        default: .unknown
+        case kIOHIDAccessTypeDenied:
+            // Granted in Settings but not for this process: needs a relaunch.
+            return .denied
+        default:
+            return CGPreflightListenEventAccess() ? .denied : .unknown
         }
     }
 

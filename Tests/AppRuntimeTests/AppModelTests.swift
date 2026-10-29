@@ -236,6 +236,7 @@ struct AppModelOnboardingTests {
             state: DummyData.emptyState(),
             service: FullService(),
             permissions: permissions,
+            onboarding: InMemoryOnboardingStore(finished: false),
             scanDelay: .zero
         )
 
@@ -252,5 +253,18 @@ struct AppModelOnboardingTests {
 
         #expect(!model.state.showsOnboarding)
         #expect(model.state.devices.count == 3)
+    }
+
+    @Test func finishedFlagCannotBypassMissingPermissions() async {
+        let model = AppModel(
+            state: DummyData.emptyState(),
+            service: FullService(),
+            permissions: GrantablePermissions(),
+            scanDelay: .zero
+        )
+
+        await model.start()
+        #expect(model.state.showsOnboarding)
+        #expect(model.state.devices.isEmpty)
     }
 }

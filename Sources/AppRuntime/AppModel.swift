@@ -20,16 +20,20 @@ public final class AppModel {
     private var lastChangeAt = Date.distantPast
     private var isUIActive = false
 
+    private let onboarding: any OnboardingStore
+
     public init(
         state: AppState = DummyData.initialState(),
         service: any DeviceService = DummyDeviceService(),
         permissions: any PermissionsService = DummyPermissionsService(),
+        onboarding: any OnboardingStore = InMemoryOnboardingStore(),
         scanDelay: Duration = .milliseconds(600),
         refreshInterval: Duration = .milliseconds(500)
     ) {
         self.state = state
         self.service = service
         self.permissions = permissions
+        self.onboarding = onboarding
         self.scanDelay = scanDelay
         self.refreshInterval = refreshInterval
         observeDeviceChanges()
@@ -40,21 +44,15 @@ public final class AppModel {
     /// required ones are in place.
     public func start() async {
         await refreshPermissions()
-        guard state.permissions.requiredGranted else {
-            state.showsOnboarding = true
-            return
-        }
-        state.showsOnboarding = false
-        refresh()
+        // Launch is always silent: no discovery, no permission prompts. The
+        // first scan happens when the popover opens or onboarding finishes.
     }
 
     /// Permissions are the single source of truth: if a required grant is
     /// missing, onboarding stays up and discovery stays off.
     public func refreshPermissions() async {
         state.permissions = await permissions.status()
-        if !state.permissions.requiredGranted {
-            state.showsOnboarding = true
-        }
+        state.showsOnboarding = !state.permissions.requiredGranted || !onboarding.isFinished
     }
 
     private func finishOnboarding() {
@@ -62,6 +60,7 @@ public final class AppModel {
             state.showsOnboarding = true
             return
         }
+        onboarding.markFinished()
         state.showsOnboarding = false
         refresh()
     }
@@ -260,6 +259,7 @@ public extension AppModel {
     static let shared = AppModel(
         state: AppState(general: DummyData.generalSettings, version: AppVersion.current),
         service: HIDPPDeviceService(),
-        permissions: SystemPermissions()
+        permissions: SystemPermissions(),
+        onboarding: UserDefaultsOnboardingStore()
     )
 }

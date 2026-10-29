@@ -103,17 +103,21 @@ final class ScrollBehavior: DeviceBehavior {
     }
 
     /// Enable or disable HID++ target mode for hi-res scroll data.
+    ///
+    /// The hi-res flag is forced on whenever we divert the wheel: leaving it at
+    /// the device's current value makes the wheel report low-resolution deltas,
+    /// so the smoother receives coarse 30px ticks instead of hi-res data. This
+    /// matches the behaviour that worked before the behavior refactor.
     func setTarget(_ enabled: Bool) async {
         guard let idx = device.hiResScrollFeatureIndex else { return }
         let inverted = device.toggles[CapabilityID.hiResInverted]?.value ?? false
-        let hiRes = device.toggles[CapabilityID.hiResEnabled]?.value ?? true
         do {
             try await HiResScrollFeature.setWheelMode(
                 transport: device.transport,
                 deviceIndex: device.deviceIndex,
                 featureIndex: idx,
                 target: enabled,
-                hiRes: hiRes,
+                hiRes: true,
                 inverted: inverted
             )
             ScrollInterceptor.shared.hiResActive = enabled

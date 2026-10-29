@@ -20,6 +20,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    func applicationDidBecomeActive(_ notification: Notification) {
+        DeviceCoreRuntime.shared.retryScrollIfNeeded()
+    }
+
     private func syncGeneralSettings() {
         AppModel.shared.syncGeneralToggle(
             "general.launchAtLogin",

@@ -1,6 +1,7 @@
 import AppCore
 import AppKit
 import AppRuntime
+import DeviceCore
 import MenuBarUI
 import ServiceManagement
 import SwiftUI
@@ -52,6 +53,9 @@ final class MenuBarController: NSObject {
 
     private func showPopover() {
         guard let button = statusItem?.button else { return }
+        // The user may have just granted Accessibility; a failed tap start can
+        // recover without relaunching.
+        DeviceCoreRuntime.shared.retryScrollIfNeeded()
         // Rebuild so the viewport cap comes from the screen holding the item.
         hostingController?.rootView = makeRoot()
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)

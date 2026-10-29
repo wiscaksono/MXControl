@@ -18,6 +18,12 @@ public final class DeviceCoreRuntime {
         BatteryNotifier.setup()
     }
 
+    /// Scroll interception can only start once Accessibility is granted. Retry
+    /// when the user comes back after flipping the switch in System Settings.
+    public func retryScrollIfNeeded() {
+        ScrollInterceptor.shared.retryIfNeeded()
+    }
+
     public func scan() async -> DeviceSnapshot {
         if manager.devices.isEmpty, !manager.isScanning {
             manager.startDiscovery()

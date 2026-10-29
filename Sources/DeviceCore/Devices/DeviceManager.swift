@@ -92,10 +92,8 @@ final class DeviceManager {
                 self?.refreshMicMuteState()
             }
         }
-        // Auto-start discovery on creation
-        Task { @MainActor [self] in
-            self.startDiscovery()
-        }
+        // Discovery is started explicitly by the app layer: creating the
+        // manager must never touch IOHID or CoreBluetooth on its own.
     }
 
     deinit {

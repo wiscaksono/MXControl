@@ -197,10 +197,9 @@ enum CapabilityHandlers {
 
             // The physical button wins: keep saved prefs in sync so a reconnect
             // does not restore the previous mode.
-            SettingsStore.saveValue(Int(mode.rawValue), CapabilityID.smartShiftWheelMode, scope: device.settingScope)
-            SettingsStore.saveValue(active, CapabilityID.smartShiftActive, scope: device.settingScope)
-
             if previousMode != Int(mode.rawValue) || previousActive != active {
+                SettingsStore.saveValue(Int(mode.rawValue), CapabilityID.smartShiftWheelMode, scope: device.settingScope)
+                SettingsStore.saveValue(active, CapabilityID.smartShiftActive, scope: device.settingScope)
                 NotificationCenter.default.post(name: .deviceStateChanged, object: nil)
             }
         } catch {

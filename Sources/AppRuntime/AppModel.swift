@@ -14,13 +14,16 @@ public final class AppModel {
     private let refreshInterval: Duration
     private var scanTask: Task<Void, Never>?
     private var refreshTask: Task<Void, Never>?
+    private var pendingChange: Task<Void, Never>?
+    private var changeGeneration = 0
+    private var lastChangeAt = Date.distantPast
     private var isUIActive = false
 
     public init(
         state: AppState = DummyData.initialState(),
         service: any DeviceService = DummyDeviceService(),
         scanDelay: Duration = .milliseconds(600),
-        refreshInterval: Duration = .seconds(5)
+        refreshInterval: Duration = .milliseconds(500)
     ) {
         self.state = state
         self.service = service
@@ -108,13 +111,27 @@ public final class AppModel {
 
     /// Optimistic UI: the local state already changed, so forward the same
     /// value to the device and adopt whatever the service reports back.
+    ///
+    /// Slider drags fire dozens of changes; commit the latest one after a short
+    /// debounce and ignore snapshots from older requests, otherwise a slow
+    /// response overwrites the value the user is still dragging.
     private func pushChange(_ itemID: String) {
-        guard case let .device(deviceID) = state.route,
-              let value = state.settingValue(itemID) else { return }
+        guard case .device = state.route else { return }
 
-        let change = DeviceChange(deviceID: deviceID, itemID: itemID, value: value)
-        Task { @MainActor in
-            guard let snapshot = await service.apply(change) else { return }
+        changeGeneration &+= 1
+        let generation = changeGeneration
+        lastChangeAt = Date()
+
+        pendingChange?.cancel()
+        pendingChange = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(80))
+            guard !Task.isCancelled, generation == changeGeneration,
+                  case let .device(deviceID) = state.route,
+                  let value = state.settingValue(itemID) else { return }
+
+            let change = DeviceChange(deviceID: deviceID, itemID: itemID, value: value)
+            guard let snapshot = await service.apply(change),
+                  generation == changeGeneration else { return }
             adopt(snapshot)
         }
     }
@@ -151,7 +168,10 @@ public final class AppModel {
                 guard let interval = self?.refreshInterval else { return }
                 try? await Task.sleep(for: interval)
                 guard let self, !Task.isCancelled else { return }
-                guard isUIActive, let snapshot = await service.refresh() else { continue }
+                guard isUIActive else { continue }
+                // A drag is still settling; a poll would fight the local value.
+                guard Date().timeIntervalSince(lastChangeAt) > 0.6,
+                      let snapshot = await service.refresh() else { continue }
                 adoptIfChanged(snapshot)
             }
         }

@@ -49,7 +49,7 @@ struct AppModelTests {
         model.handle(.refresh)
         #expect(model.state.isScanning)
 
-        try await Task.sleep(for: .milliseconds(50))
+        try await Task.sleep(for: .milliseconds(200))
         #expect(!model.state.isScanning)
         #expect(model.state.devices.count == 3)
         #expect(model.state.details.count == 2)
@@ -60,7 +60,7 @@ struct AppModelTests {
         model.handle(.refresh)
         model.handle(.refresh)
 
-        try await Task.sleep(for: .milliseconds(50))
+        try await Task.sleep(for: .milliseconds(200))
         #expect(!model.state.isScanning)
         #expect(model.state.devices.count == 3)
     }
@@ -84,7 +84,7 @@ struct AppModelTests {
         model.handle(.toggle(itemID: "wheel.smartshift"))
         #expect(model.state.settingValue("wheel.smartshift") == .bool(false))
 
-        try await Task.sleep(for: .milliseconds(50))
+        try await Task.sleep(for: .milliseconds(200))
         let changes = await service.recorded()
         #expect(changes.count == 1)
         #expect(changes.first?.deviceID == DummyData.mouseID)
@@ -114,7 +114,7 @@ struct AppModelDisconnectionTests {
         await MainActor.run {
             model.handle(.toggle(itemID: "wheel.smartshift"))
         }
-        try await Task.sleep(for: .milliseconds(50))
+        try await Task.sleep(for: .milliseconds(200))
         let route = await model.state.route
         #expect(route == .root)
     }
@@ -157,7 +157,7 @@ struct AppModelUIActivityTests {
         await MainActor.run {
             model.setUIActive(true)
         }
-        try await Task.sleep(for: .milliseconds(50))
+        try await Task.sleep(for: .milliseconds(200))
         #expect(await model.state.devices.count == 3)
     }
 }

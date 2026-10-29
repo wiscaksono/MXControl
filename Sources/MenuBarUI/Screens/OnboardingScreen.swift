@@ -102,43 +102,67 @@ struct OnboardingScreen: View {
 
     @ViewBuilder
     private func rowAction(for kind: PermissionKind) -> some View {
-        switch permissions.status(for: kind) {
-        case .granted:
-            EmptyView()
-        case .denied:
-            HStack(spacing: 8) {
-                Button("Open Settings") {
-                    onAction(.openPermissionPane(kind))
-                }
-                if kind == .inputMonitoring {
-                    Button("Relaunch") {
-                        onAction(.relaunchApp)
-                    }
-                }
-            }
-            .buttonStyle(.plain)
-            .font(.system(size: 10, weight: .medium))
-            .foregroundStyle(.tint)
-            .padding(.top, 1)
-        case .unknown:
-            Button("Enable") {
-                onAction(.requestPermission(kind))
+        if kind == .inputMonitoring, permissions.accessibility != .granted {
+            Button("Fix Accessibility") {
+                onAction(accessibilityAction)
             }
             .buttonStyle(.plain)
             .font(.system(size: 10, weight: .semibold))
             .foregroundStyle(.tint)
             .padding(.top, 1)
+        } else {
+            switch permissions.status(for: kind) {
+            case .granted:
+                EmptyView()
+            case .denied:
+                HStack(spacing: 8) {
+                    Button("Open Settings") {
+                        onAction(.openPermissionPane(kind))
+                    }
+                    if kind == .inputMonitoring {
+                        Button("Relaunch") {
+                            onAction(.relaunchApp)
+                        }
+                    }
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(.tint)
+                .padding(.top, 1)
+            case .unknown:
+                Button("Enable") {
+                    onAction(.requestPermission(kind))
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(.tint)
+                .padding(.top, 1)
+            }
         }
     }
 
+    @ViewBuilder
     private func statusChip(for kind: PermissionKind) -> some View {
-        let status = permissions.status(for: kind)
-        return Text(status.label)
+        if kind == .inputMonitoring, permissions.accessibility != .granted {
+            chip(text: "Needs Accessibility", tint: .orange)
+        } else {
+            let status = permissions.status(for: kind)
+            Text(status.label)
+                .font(.system(size: 9, weight: .medium))
+                .foregroundStyle(tint(for: status))
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Capsule().fill(tint(for: status).opacity(0.12)))
+        }
+    }
+
+    private func chip(text: String, tint: Color) -> some View {
+        Text(text)
             .font(.system(size: 9, weight: .medium))
-            .foregroundStyle(tint(for: status))
+            .foregroundStyle(tint)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
-            .background(Capsule().fill(tint(for: status).opacity(0.12)))
+            .background(Capsule().fill(tint.opacity(0.12)))
     }
 
     private func tint(for status: PermissionStatus) -> Color {
@@ -176,11 +200,20 @@ struct OnboardingScreen: View {
                 .disabled(primaryTitle == "Continue" && !permissions.requiredGranted)
             }
 
-            if !permissions.requiredGranted {
-                Text("Input Monitoring and Accessibility are required to control your devices.")
-                    .font(.system(size: 9))
-                    .foregroundStyle(.tertiary)
-                    .fixedSize(horizontal: false, vertical: true)
+            if permissions.accessibility != .granted {
+                Text(
+                    "Accessibility first: macOS reports Input Monitoring as denied until it is granted."
+                )
+                .font(.system(size: 9))
+                .foregroundStyle(.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
+            } else if permissions.inputMonitoring != .granted {
+                Text(
+                    "Still denied after granting? Remove MXControl from the list and add it again — old entries stop matching after a re-sign."
+                )
+                .font(.system(size: 9))
+                .foregroundStyle(.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
@@ -200,12 +233,22 @@ struct OnboardingScreen: View {
             onAction(.finishOnboarding)
             return
         }
-        if let denied = requiredKinds.first(where: { permissions.status(for: $0) == .denied }) {
-            onAction(.openPermissionPane(denied))
+        if permissions.accessibility != .granted {
+            onAction(accessibilityAction)
             return
         }
-        if let unknown = requiredKinds.first(where: { permissions.status(for: $0) == .unknown }) {
-            onAction(.requestPermission(unknown))
+        if permissions.inputMonitoring != .granted {
+            onAction(
+                permissions.inputMonitoring == .denied
+                    ? .openPermissionPane(.inputMonitoring)
+                    : .requestPermission(.inputMonitoring)
+            )
         }
+    }
+
+    private var accessibilityAction: UIAction {
+        permissions.accessibility == .denied
+            ? .openPermissionPane(.accessibility)
+            : .requestPermission(.accessibility)
     }
 }

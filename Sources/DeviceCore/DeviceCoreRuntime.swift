@@ -50,6 +50,15 @@ public final class DeviceCoreRuntime {
             details[summary.id] = detail(for: device, summary: summary)
         }
 
+        // CoreBluetooth sees devices whose HID++ interface cannot be opened
+        // (kIOReturnExclusiveAccess on macOS 15+). List them read-only instead
+        // of showing an empty popover.
+        for info in manager.bleDevices where !summaries.contains(where: { $0.name == info.name }) {
+            let summary = summary(for: info)
+            summaries.append(summary)
+            details[summary.id] = detail(for: info, summary: summary)
+        }
+
         return DeviceSnapshot(
             devices: summaries,
             details: details,
@@ -140,6 +149,42 @@ public final class DeviceCoreRuntime {
             device: summary,
             connectionDetail: "\(summary.transport.label) · \(device.descriptor.name)",
             sections: sections(for: device)
+        )
+    }
+
+    private func summary(for info: BLEPeripheralInfo) -> DeviceSummary {
+        DeviceSummary(
+            id: DeviceID(
+                transport: .ble,
+                unitID: 0xFE,
+                serial: info.peripheralId.uuidString
+            ),
+            name: info.name,
+            kind: deviceKind(for: info.deviceType),
+            transport: .ble,
+            battery: AppCore.BatteryState(level: info.batteryLevel ?? 0, isCharging: false),
+            isConnected: true
+        )
+    }
+
+    /// GATT only exposes identity and battery, so this screen is read-only
+    /// until the HID++ interface can be opened.
+    private func detail(for info: BLEPeripheralInfo, summary: DeviceSummary) -> DeviceDetail {
+        var items: [SettingItem] = [
+            SettingItem(id: "ble.model", title: "Model", control: .info(value: info.modelNumber ?? info.name)),
+            SettingItem(id: "ble.serial", title: "Serial", control: .info(value: info.serialNumber ?? "Unknown")),
+            SettingItem(id: "ble.firmware", title: "Firmware", control: .info(value: info.firmwareRevision ?? "Unknown")),
+        ]
+        if let battery = info.batteryLevel {
+            items.append(
+                SettingItem(id: "ble.battery", title: "Battery", control: .info(value: "\(battery)%"))
+            )
+        }
+
+        return DeviceDetail(
+            device: summary,
+            connectionDetail: "Bluetooth · Read-only",
+            sections: [SettingSection(id: "device", title: "Device", items: items)]
         )
     }
 
@@ -267,7 +312,11 @@ public final class DeviceCoreRuntime {
     }
 
     private func deviceKind(for device: LogiDevice) -> DeviceKind {
-        switch device.deviceType {
+        deviceKind(for: device.deviceType)
+    }
+
+    private func deviceKind(for type: DeviceType) -> DeviceKind {
+        switch type {
         case .mouse: .mouse
         case .keyboard: .keyboard
         default: .other

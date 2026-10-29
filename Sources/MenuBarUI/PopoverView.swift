@@ -108,6 +108,7 @@ public struct PopoverView: View {
         )
         .compositingGroup()
         .clipped()
+        .focusEffectDisabled()
     }
 
     private var headerTitle: String {
@@ -215,6 +216,7 @@ public struct PopoverView: View {
         }
         .padding(.horizontal, 4)
         .frame(height: Metric.footerHeight)
+        .focusEffectDisabled()
     }
 }
 

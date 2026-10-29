@@ -257,7 +257,7 @@ public final class DeviceCoreRuntime {
                 }
                 return SettingItem(
                     id: "host.\(host.index)",
-                    title: "Host \(host.index + 1)",
+                    title: host.name,
                     control: .info(value: detail)
                 )
             }

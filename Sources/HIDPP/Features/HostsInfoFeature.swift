@@ -63,6 +63,8 @@ public enum HostsInfoFeature {
         public let index: Int
         public let paired: Bool
         public let busType: BusType
+        public let friendlyNameLength: Int
+        public let friendlyNameMaxLength: Int
     }
 
     // MARK: - Host Entry (UI model)
@@ -155,8 +157,74 @@ public enum HostsInfoFeature {
         return HostSlot(
             index: hostIndex,
             paired: params[1] == SlotStatus.paired.rawValue,
-            busType: BusType(rawValue: params[2]) ?? .undefined
+            busType: BusType(rawValue: params[2]) ?? .undefined,
+            friendlyNameLength: Int(params[4]),
+            friendlyNameMaxLength: Int(params[5])
         )
+    }
+
+    // MARK: - Function 3: GetHostFriendlyName
+
+    /// Bytes of friendly name one transfer carries.
+    public static let hostNameChunkLength = 14
+
+    /// Read one chunk of a slot's friendly name.
+    ///
+    /// Request: `[host, offset, 0x00]`.
+    /// Response: `[host, offset, 14 name bytes]`. Bytes past the name length
+    /// are padding and must be dropped by the caller.
+    public static func getHostFriendlyName(
+        transport: HIDTransport,
+        deviceIndex: UInt8,
+        featureIndex: UInt8,
+        hostIndex: Int,
+        offset: Int
+    ) async throws -> (offset: Int, bytes: [UInt8]) {
+        let response = try await transport.send(
+            deviceIndex: deviceIndex,
+            featureIndex: featureIndex,
+            functionId: 0x03,
+            softwareId: 0x01,
+            params: [UInt8(clamping: hostIndex), UInt8(clamping: offset), 0x00]
+        )
+
+        let params = response.params
+        guard params.count >= 2 + hostNameChunkLength else {
+            throw HIDPPError.transportError("Truncated host name chunk (\(params.count) bytes)")
+        }
+        return (offset: Int(params[1]), bytes: Array(params[2..<(2 + hostNameChunkLength)]))
+    }
+
+    /// Read a whole friendly name, chunk by chunk. Returns an empty string when
+    /// the device has nothing stored for the slot.
+    static func readFriendlyName(
+        transport: HIDTransport,
+        deviceIndex: UInt8,
+        featureIndex: UInt8,
+        hostIndex: Int,
+        length: Int
+    ) async throws -> String {
+        // A corrupt length must not fan out into hundreds of requests.
+        let clamped = min(max(length, 0), 128)
+        guard clamped > 0 else { return "" }
+
+        var bytes: [UInt8] = []
+        var offset = 0
+        while offset < clamped {
+            let chunk = try await getHostFriendlyName(
+                transport: transport,
+                deviceIndex: deviceIndex,
+                featureIndex: featureIndex,
+                hostIndex: hostIndex,
+                offset: offset
+            )
+            bytes.append(contentsOf: chunk.bytes)
+            offset += hostNameChunkLength
+        }
+
+        let trimmed = bytes.prefix(clamped).filter { $0 != 0 }
+        return String(decoding: trimmed, as: UTF8.self)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     // MARK: - Convenience: Get All Hosts
@@ -191,9 +259,19 @@ public enum HostsInfoFeature {
                 featureIndex: featureIndex,
                 hostIndex: i
             )
+            var name = ""
+            if info.canGetName, slot.paired, slot.friendlyNameLength > 0 {
+                name = (try? await readFriendlyName(
+                    transport: transport,
+                    deviceIndex: deviceIndex,
+                    featureIndex: featureIndex,
+                    hostIndex: i,
+                    length: slot.friendlyNameLength
+                )) ?? ""
+            }
             hosts.append(HostEntry(
                 index: i,
-                name: "Slot \(i + 1)",
+                name: name.isEmpty ? "Host \(i + 1)" : name,
                 busType: slot.busType,
                 isPaired: slot.paired
             ))

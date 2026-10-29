@@ -498,7 +498,7 @@ struct HostsInfoFeatureTests {
 
         #expect(current == 1)
         #expect(hosts.count == 3)
-        #expect(hosts[0].name == "Slot 1")
+        #expect(hosts[0].name == "Host 1")
         #expect(hosts[0].busType == .usb)
         #expect(hosts[0].isPaired == true)
         #expect(hosts[1].busType == .ble)

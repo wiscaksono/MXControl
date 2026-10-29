@@ -154,10 +154,14 @@ public enum DummyData {
                 SettingSection(id: "hosts", title: "Hosts", items: [
                     SettingItem(
                         id: "host.0",
-                        title: "Host 1",
+                        title: "MacBook Pro",
                         control: .info(value: "USB · Active")
                     ),
-                    SettingItem(id: "host.1", title: "Host 2", control: .info(value: "Bluetooth")),
+                    SettingItem(
+                        id: "host.1",
+                        title: "Work iMac",
+                        control: .info(value: "Bluetooth")
+                    ),
                     SettingItem(id: "host.2", title: "Host 3", control: .info(value: "Empty")),
                 ]),
             ]

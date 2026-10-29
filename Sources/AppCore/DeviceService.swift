@@ -43,13 +43,25 @@ public struct DeviceChange: Equatable, Sendable {
 /// The seam between the UI layer and real hardware. Views never import HID++.
 public protocol DeviceService: Sendable {
     func scan() async -> DeviceSnapshot
+    /// Fresh state without a discovery round trip.
+    func refresh() async -> DeviceSnapshot?
     /// Returns a fresh snapshot after the write, when the service can provide
     /// one. Dummy services return nil.
     func apply(_ change: DeviceChange) async -> DeviceSnapshot?
+    /// Drops every saved preference and reloads device defaults.
+    func clearSettings() async -> DeviceSnapshot?
 }
 
 public extension DeviceService {
+    func refresh() async -> DeviceSnapshot? {
+        nil
+    }
+
     func apply(_ change: DeviceChange) async -> DeviceSnapshot? {
+        nil
+    }
+
+    func clearSettings() async -> DeviceSnapshot? {
         nil
     }
 }

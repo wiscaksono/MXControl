@@ -12,8 +12,7 @@ struct AppModelTests {
         }
     }
 
-    private actor RecordingService: DeviceService {
-        nonisolated let snapshot: DeviceSnapshot
+    private actor RecordingService: DeviceService { nonisolated let snapshot: DeviceSnapshot
         private var changes: [DeviceChange] = []
 
         init(snapshot: DeviceSnapshot) {
@@ -87,5 +86,47 @@ struct AppModelTests {
         #expect(changes.first?.deviceID == DummyData.mouseID)
         #expect(changes.first?.itemID == "wheel.smartshift")
         #expect(changes.first?.value == .bool(false))
+    }
+}
+
+struct AppModelDisconnectionTests {
+    private struct EmptyingService: DeviceService {
+        nonisolated func scan() async -> DeviceSnapshot {
+            DeviceSnapshot()
+        }
+
+        func apply(_ change: DeviceChange) async -> DeviceSnapshot? {
+            DeviceSnapshot()
+        }
+    }
+
+    @Test func disconnectFallsBackToRoot() async throws {
+        let model = await AppModel(
+            state: DummyData.initialState(route: .device(DummyData.mouseID)),
+            service: EmptyingService(),
+            scanDelay: .zero
+        )
+
+        await MainActor.run {
+            model.handle(.toggle(itemID: "wheel.smartshift"))
+        }
+        try await Task.sleep(for: .milliseconds(50))
+        let route = await model.state.route
+        #expect(route == .root)
+    }
+
+    @Test func resetKeepsLiveDevices() async {
+        let model = await AppModel(
+            state: DummyData.initialState(route: .general),
+            service: EmptyingService(),
+            scanDelay: .zero
+        )
+        let ids = await model.state.devices.map(\.id)
+
+        await MainActor.run {
+            model.handle(.resetAll)
+        }
+        let after = await model.state.devices.map(\.id)
+        #expect(after == ids)
     }
 }

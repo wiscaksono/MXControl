@@ -51,6 +51,23 @@ public final class DeviceCoreRuntime {
         )
     }
 
+    /// Live battery and connection state, without rediscovering.
+    public func refresh() async -> DeviceSnapshot? {
+        for device in manager.devices where device.isInitialized {
+            await device.refreshBattery()
+        }
+        return snapshot()
+    }
+
+    /// Forget every saved preference and let the devices report their defaults.
+    public func clearSettings() async -> DeviceSnapshot? {
+        for device in manager.devices {
+            SettingsStore.clearSettings(for: device.settingScope)
+            await device.loadCapabilities()
+        }
+        return snapshot()
+    }
+
     /// Discovery reports permission and transport problems through its status
     /// string; surface the ones the user can act on.
     private var discoveryWarning: String? {
@@ -260,7 +277,15 @@ public struct HIDPPDeviceService: DeviceService {
         await DeviceCoreRuntime.shared.scan()
     }
 
+    public func refresh() async -> DeviceSnapshot? {
+        await DeviceCoreRuntime.shared.refresh()
+    }
+
     public func apply(_ change: DeviceChange) async -> DeviceSnapshot? {
         await DeviceCoreRuntime.shared.apply(change)
+    }
+
+    public func clearSettings() async -> DeviceSnapshot? {
+        await DeviceCoreRuntime.shared.clearSettings()
     }
 }

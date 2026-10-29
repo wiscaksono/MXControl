@@ -11,16 +11,21 @@ public final class AppModel {
 
     private let service: any DeviceService
     private let scanDelay: Duration
+    private let refreshInterval: Duration
     private var scanTask: Task<Void, Never>?
+    private var refreshTask: Task<Void, Never>?
 
     public init(
         state: AppState = DummyData.initialState(),
         service: any DeviceService = DummyDeviceService(),
-        scanDelay: Duration = .milliseconds(600)
+        scanDelay: Duration = .milliseconds(600),
+        refreshInterval: Duration = .seconds(60)
     ) {
         self.state = state
         self.service = service
         self.scanDelay = scanDelay
+        self.refreshInterval = refreshInterval
+        startRefreshLoop()
     }
 
     public func handle(_ action: UIAction) {
@@ -43,7 +48,12 @@ public final class AppModel {
         case .activate:
             break // action rows are confirmed by the controller first
         case .resetAll:
-            state = DummyData.initialState(route: state.route)
+            state.general = DummyData.generalSettings
+            state.warning = nil
+            Task { @MainActor in
+                guard let snapshot = await service.clearSettings() else { return }
+                adopt(snapshot)
+            }
         case .openPermissionSettings:
             break // handled in the app layer, which owns NSWorkspace
         case .refresh:
@@ -87,8 +97,32 @@ public final class AppModel {
         let change = DeviceChange(deviceID: deviceID, itemID: itemID, value: value)
         Task { @MainActor in
             guard let snapshot = await service.apply(change) else { return }
-            state.devices = snapshot.devices
-            state.details = snapshot.details
+            adopt(snapshot)
+        }
+    }
+
+    private func adopt(_ snapshot: DeviceSnapshot) {
+        state.devices = snapshot.devices
+        state.details = snapshot.details
+        if let warning = snapshot.warning {
+            state.warning = warning
+        }
+        // The device we were looking at may have disconnected.
+        if case let .device(id) = state.route, snapshot.details[id] == nil {
+            state.route = .root
+        }
+    }
+
+    /// Battery and connection state drift while the popover is closed.
+    private func startRefreshLoop() {
+        refreshTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                guard let interval = self?.refreshInterval else { return }
+                try? await Task.sleep(for: interval)
+                guard let self, !Task.isCancelled else { return }
+                guard let snapshot = await service.refresh() else { continue }
+                adopt(snapshot)
+            }
         }
     }
 }

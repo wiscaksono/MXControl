@@ -2,12 +2,19 @@
 
 All notable changes to MXControl. Format follows Keep a Changelog.
 
-## [Unreleased]
+## [0.4.2] - 2026-11-03
 
 ### Added
 
 - `make status` prints the permission gate, onboarding flag, and the settings
   that decide whether scroll and F9 can work.
+
+### Changed
+
+- Popover uses a solid white/dark background instead of the system vibrancy
+  material.
+- The selected segmented control has a clear white pill, hairline border, and
+  shadow.
 
 ### Fixed
 

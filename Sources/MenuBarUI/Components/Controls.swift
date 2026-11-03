@@ -98,7 +98,11 @@ struct SegmentedControl: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var selectedFill: Color {
-        colorScheme == .dark ? Color.white.opacity(0.16) : Color(nsColor: .windowBackgroundColor)
+        colorScheme == .dark ? Color.white.opacity(0.18) : .white
+    }
+
+    private var selectedBorder: Color {
+        colorScheme == .dark ? Color.white.opacity(0.14) : Color.primary.opacity(0.16)
     }
 
     var body: some View {
@@ -117,8 +121,15 @@ struct SegmentedControl: View {
                         .background(
                             RoundedRectangle(cornerRadius: 5, style: .continuous)
                                 .fill(index == selectedIndex ? selectedFill : Color.clear)
+                                .overlay {
+                                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                        .strokeBorder(
+                                            index == selectedIndex ? selectedBorder : Color.clear,
+                                            lineWidth: 0.5
+                                        )
+                                }
                                 .shadow(
-                                    color: index == selectedIndex ? .black.opacity(0.12) : .clear,
+                                    color: index == selectedIndex ? .black.opacity(0.14) : .clear,
                                     radius: 1,
                                     y: 0.5
                                 )

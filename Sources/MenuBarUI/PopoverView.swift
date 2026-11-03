@@ -14,7 +14,7 @@ public struct PopoverView: View {
     private let onHeightChange: ((CGFloat) -> Void)?
 
     @State private var contentHeight: CGFloat = 0
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorSchemeContrast) private var contrast
 
@@ -51,14 +51,11 @@ public struct PopoverView: View {
         .background(backgroundColor)
     }
 
-    /// Snapshots need a solid fill because materials are AppKit-backed and do
-    /// not render offscreen. In the app the popover draws its own material, so
-    /// the view stays transparent.
+    /// Explicit solid colors. `NSColor.windowBackgroundColor` is dynamic and
+    /// resolves to a vibrancy-tinted gray inside `NSPopover`, which made the
+    /// whole popover look dim.
     private var backgroundColor: Color {
-        if !scrollable || reduceTransparency {
-            return Color(nsColor: .windowBackgroundColor)
-        }
-        return .clear
+        colorScheme == .dark ? Color(white: 0.117) : .white
     }
 
     private var hairline: some View {

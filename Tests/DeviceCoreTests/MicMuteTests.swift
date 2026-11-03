@@ -139,16 +139,50 @@ struct MicMuteEngineTests {
         #expect(backend.setVolumeCalls.contains { $0.device == 3 && $0.volume == 0.0 })
     }
 
-    @Test func unmuteRestoresManuallyMutedDevice() {
-        // User muted device 7 via Control Center before F9. Our mute→unmute
-        // cycle must leave it muted instead of unmuting it.
+    @Test func unmuteClearsExternalHardwareMute() {
+        // The user muted device 7 elsewhere before F9. An explicit unmute
+        // must clear it; leaving it muted while the UI says unmuted is the
+        // bug that made the mic silent until the volume slider was touched.
         let (engine, backend) = makeEngine(devices: [7: .init(hasMute: true, volume: 0.8)])
         backend.mutedState[7] = true
 
-        engine.toggleFromKeypress()  // mute (already muted, stays muted)
-        engine.toggleFromKeypress()  // unmute → restores prior muted=true
+        engine.toggleFromKeypress()  // mute
+        engine.toggleFromKeypress()  // unmute
 
-        #expect(backend.mutedState[7] == true)
+        #expect(backend.mutedState[7] == false)
+    }
+
+    @Test func unmuteWritesVolumeForHardwareMuteDevice() {
+        // The built-in mic only releases its mute after a volume write.
+        let (engine, backend) = makeEngine(devices: [7: .init(hasMute: true, volume: 0.8)])
+
+        engine.toggleFromKeypress()  // mute
+        engine.toggleFromKeypress()  // unmute
+
+        #expect(backend.setVolumeCalls.last?.volume == 0.8)
+        #expect(backend.mutedState[7] == false)
+    }
+
+    @Test func unmuteRaisesZeroVolumeForHardwareMuteDevice() {
+        let (engine, backend) = makeEngine(devices: [7: .init(hasMute: true, volume: 0.0)])
+        backend.mutedState[7] = true
+
+        engine.syncFromHardware()   // app starts muted
+        engine.toggleFromKeypress() // unmute
+
+        #expect(backend.setVolumeCalls.last?.volume == 1.0)
+        #expect(backend.mutedState[7] == false)
+    }
+
+    @Test func unmuteRestoresZeroVolumeWithoutSavedLevel() {
+        // App was killed while muted and the saved level is gone. Unmute
+        // must not leave the input at 0.
+        let (engine, backend) = makeEngine(devices: [9: .init(hasMute: false, volume: 0.0)])
+
+        engine.syncFromHardware()
+        engine.toggleFromKeypress()
+
+        #expect(backend.setVolumeCalls.last?.volume == 1.0)
     }
 
     @Test func syncFromHardwareAdoptsExternalMute() {
@@ -341,7 +375,7 @@ struct MicMuteTerminationTests {
         #expect(backend.mutedState[7] == false)
     }
 
-    @Test func quittingLeavesUserMutedDeviceMuted() {
+    @Test func quittingClearsMuteEvenIfItWasSetExternally() {
         let backend = MockMicMuteBackend()
         backend.devices = [7: .init(hasMute: true, volume: 0.8)]
         backend.mutedState[7] = true
@@ -351,8 +385,8 @@ struct MicMuteTerminationTests {
         engine.setMuted(true)
         engine.restoreForTermination()
 
-        // It was muted before we touched it; restoring must not unmute it.
-        #expect(backend.mutedState[7] == true)
+        // The engine's contract is to never leave the system silent on quit.
+        #expect(backend.mutedState[7] == false)
         #expect(engine.isMuted == false)
     }
 }

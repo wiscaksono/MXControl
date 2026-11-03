@@ -2,6 +2,9 @@ import AppCore
 import DeviceCore
 import Foundation
 import Observation
+import os
+
+private let logger = Logger(subsystem: "com.wiscaksono.mxcontrol", category: "app")
 
 /// Coordinates app state. It owns the screen state and talks to a
 /// `DeviceService`; it never touches HID++ or AppKit.
@@ -52,8 +55,11 @@ public final class AppModel {
         pendingChange?.cancel()
     }
 
-    /// Launch path: read permissions first, and only start discovery once the
-    /// required ones are in place.
+    /// Launch path: read permissions first. Once every required grant is in
+    /// place and onboarding is done, scan silently so scroll and F9 work
+    /// without opening the popover. The permission gate means this scan cannot
+    /// raise a prompt; it also resets a wheel left in HID++ divert mode by a
+    /// previous crash.
     public func start() async {
         await refreshPermissions()
         state.setGeneralToggle("general.batteryAlerts", to: GeneralSettings.batteryAlertsEnabled)
@@ -61,8 +67,15 @@ public final class AppModel {
             "general.batteryThreshold",
             index: GeneralSettings.batteryThresholdIndex
         )
-        // Launch is always silent: no discovery, no permission prompts. The
-        // first scan happens when the popover opens or onboarding finishes.
+
+        let permissionSummary = "accessibility=\(state.permissions.accessibility.label) "
+            + "input=\(state.permissions.inputMonitoring.label) "
+            + "bluetooth=\(state.permissions.bluetooth.label) "
+            + "onboarding=\(onboarding.isFinished)"
+        logger.info("[App] permissions \(permissionSummary, privacy: .public)")
+
+        guard state.permissions.requiredGranted, onboarding.isFinished else { return }
+        refresh()
     }
 
     /// Permissions are the single source of truth: if a required grant is

@@ -84,6 +84,8 @@ On first open, the wizard asks for:
 
 Nothing is requested at launch, and no prompt appears before you open the popover. If macOS says a grant needs a restart, the wizard offers a Relaunch button.
 
+Once the grants are in place, MXControl scans at launch, so smooth scrolling and F9 work without opening the popover.
+
 The DMG is signed with an Apple Development certificate and is not notarized. If macOS blocks the first launch on another Mac, open **System Settings → Privacy & Security → Open Anyway**, or run:
 
 ```sh

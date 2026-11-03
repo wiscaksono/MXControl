@@ -9,6 +9,11 @@ extension Notification.Name {
     /// Posted when mic-mute configuration changes (toggle on/off, device divert state).
     /// DeviceManager observes this to refresh F9KeyMonitor routing.
     static let micMuteConfigChanged = Notification.Name("com.mxcontrol.micMuteConfigChanged")
+
+    /// Posted when the effective mute state changes, including changes made
+    /// outside the app (Control Center, the system volume slider, or another
+    /// audio app). The overlay listens so it never lies about the mic state.
+    static let micMuteStateChanged = Notification.Name("com.mxcontrol.micMuteStateChanged")
 }
 
 // MARK: - Backend Protocol
@@ -192,9 +197,13 @@ final class MicMuteEngine: @unchecked Sendable {
     private var savedVolumes: [AudioDeviceID: Float32] = [:]
     /// Devices that were muted via hardware mute (for diagnostics).
     private var mutedViaHardware: Set<AudioDeviceID> = []
-    /// Hardware mute states observed before our first mute, so unmute restores
-    /// a device that the user had already muted manually instead of unmuting it.
-    private var priorHardwareMute: [AudioDeviceID: Bool] = [:]
+
+    /// Main-thread state for the default input device listeners. CoreAudio
+    /// callbacks hop to main before touching these.
+    private var listenedInputDevice: AudioDeviceID?
+    private var hasInputMuteListener = false
+    private var hasInputVolumeListener = false
+    private var hasDefaultInputListener = false
 
     /// Minimum interval between toggles. Guards against HID++ + event-tap double-fire.
     var debounceInterval: TimeInterval = 0.3
@@ -248,8 +257,12 @@ final class MicMuteEngine: @unchecked Sendable {
             }
         }
         lock.lock()
+        let changed = _isMuted != anyMuted
         _isMuted = anyMuted
         lock.unlock()
+        if changed {
+            NotificationCenter.default.post(name: .micMuteStateChanged, object: nil)
+        }
         debugLog("[MicMute] Synced from hardware: muted=\(anyMuted)")
     }
 
@@ -305,9 +318,10 @@ final class MicMuteEngine: @unchecked Sendable {
         )
         if status != noErr {
             logger.warning("[MicMute] Device listener install failed: \(status)")
-        } else {
-            syncFromHardware()
         }
+        installDefaultInputListener()
+        installInputDeviceListeners()
+        syncFromHardware()
     }
 
     /// Remove the device-list listener. Call on app termination.
@@ -335,9 +349,15 @@ final class MicMuteEngine: @unchecked Sendable {
         if status != noErr {
             debugLog("[MicMute] Device listener removal failed: \(status)")
         }
+        removeInputDeviceListeners()
+        removeDefaultInputListener()
     }
 
     fileprivate func handleDeviceListChanged() {
+        // The default input device may have changed; listener state is main.
+        DispatchQueue.main.async { [weak self] in
+            self?.installInputDeviceListeners()
+        }
         if isMuted {
             debugLog("[MicMute] Device list changed while muted — re-applying")
             applyMuted(true)
@@ -358,15 +378,6 @@ final class MicMuteEngine: @unchecked Sendable {
         for device in currentDevices {
             if backend.hasMuteControl(device) {
                 if muted {
-                    // Remember pre-existing state so unmute restores devices the
-                    // user had already muted instead of unmuting them.
-                    if backend.getMute(device) == true {
-                        lock.lock()
-                        if priorHardwareMute[device] == nil {
-                            priorHardwareMute[device] = true
-                        }
-                        lock.unlock()
-                    }
                     if backend.setMute(device, muted: true) {
                         hardwareCount += 1
                         lock.lock()
@@ -376,11 +387,17 @@ final class MicMuteEngine: @unchecked Sendable {
                         continue
                     }
                 } else {
-                    // Restore prior state: leave already-muted devices muted.
-                    lock.lock()
-                    let wasAlreadyMuted = priorHardwareMute.removeValue(forKey: device) ?? false
-                    lock.unlock()
-                    if backend.setMute(device, muted: wasAlreadyMuted) {
+                    // The built-in mic only really releases its mute after the
+                    // input volume is touched. Writing it here is the same
+                    // nudge a user would do by hand in System Settings.
+                    if let current = backend.getVolume(device) {
+                        let nudge = current > 0 ? current : 1.0
+                        if backend.setVolume(device, volume: nudge) {
+                            volumeCount += 1
+                        }
+                    }
+                    // An explicit unmute wins over any state observed earlier.
+                    if backend.setMute(device, muted: false) {
                         hardwareCount += 1
                         lock.lock()
                         mutedViaHardware.remove(device)
@@ -411,14 +428,22 @@ final class MicMuteEngine: @unchecked Sendable {
                 lock.lock()
                 let saved = savedVolumes.removeValue(forKey: device)
                 lock.unlock()
-                if let saved {
+                if let saved, saved > 0 {
                     if backend.setVolume(device, volume: saved) {
                         volumeCount += 1
                     } else {
                         skippedCount += 1
                     }
+                } else if let current = backend.getVolume(device), current == 0 {
+                    // The app was killed while muted, or the device list
+                    // changed and the saved level was pruned. Leaving this at
+                    // zero makes the UI lie about being unmuted.
+                    if backend.setVolume(device, volume: 1.0) {
+                        volumeCount += 1
+                    } else {
+                        skippedCount += 1
+                    }
                 }
-                // No saved volume: leave the device as-is (don't blast to full volume).
             }
         }
 
@@ -433,8 +458,181 @@ final class MicMuteEngine: @unchecked Sendable {
         lock.lock()
         savedVolumes = savedVolumes.filter { live.contains($0.key) }
         mutedViaHardware = mutedViaHardware.intersection(live)
-        priorHardwareMute = priorHardwareMute.filter { live.contains($0.key) }
         lock.unlock()
+    }
+
+    // MARK: - External Input State
+
+    /// Main-thread only. Watches the default input device so the app notices
+    /// mute/volume changes made outside the app (Control Center, System
+    /// Settings, Teams muting the device).
+    private func installDefaultInputListener() {
+        guard !hasDefaultInputListener else { return }
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultInputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        let context = Unmanaged.passUnretained(self).toOpaque()
+        let status = AudioObjectAddPropertyListener(
+            AudioObjectID(kAudioObjectSystemObject),
+            &address,
+            defaultInputDeviceChanged,
+            context
+        )
+        hasDefaultInputListener = status == noErr
+        if status != noErr {
+            debugLog("[MicMute] Default input listener install failed: \(status)")
+        }
+    }
+
+    /// Main-thread only.
+    private func removeDefaultInputListener() {
+        guard hasDefaultInputListener else { return }
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultInputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        let context = Unmanaged.passUnretained(self).toOpaque()
+        let status = AudioObjectRemovePropertyListener(
+            AudioObjectID(kAudioObjectSystemObject),
+            &address,
+            defaultInputDeviceChanged,
+            context
+        )
+        if status != noErr {
+            debugLog("[MicMute] Default input listener removal failed: \(status)")
+        }
+        hasDefaultInputListener = false
+    }
+
+    /// Main-thread only. Re-point the mute/volume listeners at the current
+    /// default input device.
+    private func installInputDeviceListeners() {
+        lock.lock()
+        let monitoring = isMonitoringDevices
+        lock.unlock()
+        guard monitoring else { return }
+
+        removeInputDeviceListeners()
+        guard let device = defaultInputDevice() else { return }
+
+        let context = Unmanaged.passUnretained(self).toOpaque()
+        var muteAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyMute,
+            mScope: kAudioDevicePropertyScopeInput,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        if AudioObjectHasProperty(device, &muteAddress) {
+            let status = AudioObjectAddPropertyListener(
+                device,
+                &muteAddress,
+                inputDevicePropertyChanged,
+                context
+            )
+            hasInputMuteListener = status == noErr
+            if status != noErr {
+                debugLog("[MicMute] Input mute listener install failed: \(status)")
+            }
+        }
+
+        var volumeAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyVolumeScalar,
+            mScope: kAudioDevicePropertyScopeInput,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        if AudioObjectHasProperty(device, &volumeAddress) {
+            let status = AudioObjectAddPropertyListener(
+                device,
+                &volumeAddress,
+                inputDevicePropertyChanged,
+                context
+            )
+            hasInputVolumeListener = status == noErr
+            if status != noErr {
+                debugLog("[MicMute] Input volume listener install failed: \(status)")
+            }
+        }
+
+        listenedInputDevice = device
+    }
+
+    /// Main-thread only.
+    private func removeInputDeviceListeners() {
+        guard let device = listenedInputDevice else { return }
+        let context = Unmanaged.passUnretained(self).toOpaque()
+
+        if hasInputMuteListener {
+            var address = AudioObjectPropertyAddress(
+                mSelector: kAudioDevicePropertyMute,
+                mScope: kAudioDevicePropertyScopeInput,
+                mElement: kAudioObjectPropertyElementMain
+            )
+            let status = AudioObjectRemovePropertyListener(
+                device,
+                &address,
+                inputDevicePropertyChanged,
+                context
+            )
+            if status != noErr {
+                debugLog("[MicMute] Input mute listener removal failed: \(status)")
+            }
+        }
+
+        if hasInputVolumeListener {
+            var address = AudioObjectPropertyAddress(
+                mSelector: kAudioDevicePropertyVolumeScalar,
+                mScope: kAudioDevicePropertyScopeInput,
+                mElement: kAudioObjectPropertyElementMain
+            )
+            let status = AudioObjectRemovePropertyListener(
+                device,
+                &address,
+                inputDevicePropertyChanged,
+                context
+            )
+            if status != noErr {
+                debugLog("[MicMute] Input volume listener removal failed: \(status)")
+            }
+        }
+
+        listenedInputDevice = nil
+        hasInputMuteListener = false
+        hasInputVolumeListener = false
+    }
+
+    private func defaultInputDevice() -> AudioDeviceID? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultInputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var device = AudioDeviceID(0)
+        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        let status = AudioObjectGetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject),
+            &address,
+            0,
+            nil,
+            &size,
+            &device
+        )
+        guard status == noErr, device != 0 else { return nil }
+        return device
+    }
+
+    /// Main-thread only.
+    fileprivate func handleDefaultInputDeviceChanged() {
+        installInputDeviceListeners()
+        syncFromHardware()
+        pruneStaleState()
+    }
+
+    /// Runs on main; reading CoreAudio properties is safe there.
+    fileprivate func handleExternalInputChange() {
+        syncFromHardware()
+        pruneStaleState()
     }
 }
 
@@ -450,5 +648,35 @@ private func deviceListChanged(
     guard let clientData else { return noErr }
     let engine = Unmanaged<MicMuteEngine>.fromOpaque(clientData).takeUnretainedValue()
     engine.handleDeviceListChanged()
+    return noErr
+}
+
+/// C callback for default input device changes.
+private func defaultInputDeviceChanged(
+    _ objectID: AudioObjectID,
+    _ numAddresses: UInt32,
+    _ addresses: UnsafePointer<AudioObjectPropertyAddress>,
+    _ clientData: UnsafeMutableRawPointer?
+) -> OSStatus {
+    guard let clientData else { return noErr }
+    let engine = Unmanaged<MicMuteEngine>.fromOpaque(clientData).takeUnretainedValue()
+    DispatchQueue.main.async {
+        engine.handleDefaultInputDeviceChanged()
+    }
+    return noErr
+}
+
+/// C callback for input mute/volume property changes on the default device.
+private func inputDevicePropertyChanged(
+    _ objectID: AudioObjectID,
+    _ numAddresses: UInt32,
+    _ addresses: UnsafePointer<AudioObjectPropertyAddress>,
+    _ clientData: UnsafeMutableRawPointer?
+) -> OSStatus {
+    guard let clientData else { return noErr }
+    let engine = Unmanaged<MicMuteEngine>.fromOpaque(clientData).takeUnretainedValue()
+    DispatchQueue.main.async {
+        engine.handleExternalInputChange()
+    }
     return noErr
 }

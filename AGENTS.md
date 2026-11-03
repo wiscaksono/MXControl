@@ -17,6 +17,8 @@ verification path.
   Snapshots verify drawing only, not interaction or focus behavior.
 - When something needs a real click, write the manual steps for the user
   instead of doing them.
+- `make status` prints permission, onboarding, and key-setting JSON. Use it
+  before guessing why scroll or F9 is inactive.
 - README screenshots come from `make screenshots`, which renders the snapshot
   fixtures into `docs/images/`. Do not hand-edit those PNGs.
 
@@ -36,8 +38,9 @@ verification path.
 - Permissions: Accessibility gates Input Monitoring, and a TCC grant only
   applies to the process that starts after it. The onboarding wizard owns
   prompts; no device load or background service may request AX on its own.
-- Discovery runs only when the popover opens with an empty list, when
-  onboarding finishes, or on an explicit rescan. Never at launch.
+- Discovery runs at launch only when every required permission is granted and
+  onboarding is finished. Otherwise it waits for the popover, onboarding
+  finish, or an explicit rescan. A launch scan must never prompt.
 - `HIDPP` and `DeviceCore` are ported from MXControl and excluded from
   `swiftformat`/`swiftlint`. Keep edits there minimal and mechanical.
 - Hardware writes go through `DeviceService.apply(_:)`; never mutate a live

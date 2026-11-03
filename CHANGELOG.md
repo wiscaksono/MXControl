@@ -2,6 +2,22 @@
 
 All notable changes to MXControl. Format follows Keep a Changelog.
 
+## [Unreleased]
+
+### Added
+
+- `make status` prints the permission gate, onboarding flag, and the settings
+  that decide whether scroll and F9 can work.
+
+### Fixed
+
+- Microphone unmute now writes the input volume and clears the hardware mute,
+  so the built-in mic produces audio without touching the System Settings
+  slider.
+- The mic pill follows mute and volume changes made outside the app.
+- Launch scans silently once permissions are granted, so scroll and F9 work
+  immediately and a wheel left in HID++ divert mode is reset.
+
 ## [0.4.1] - 2026-10-30
 
 ### Added

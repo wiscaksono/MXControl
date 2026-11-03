@@ -11,10 +11,15 @@ public struct SystemPermissions: PermissionsService {
     public init() {}
 
     public func status() async -> PermissionState {
+        Self.current()
+    }
+
+    /// Synchronous snapshot for the headless `--status` path.
+    public static func current() -> PermissionState {
         PermissionState(
-            inputMonitoring: Self.inputMonitoring,
-            accessibility: Self.accessibility,
-            bluetooth: Self.bluetooth
+            inputMonitoring: inputMonitoring,
+            accessibility: accessibility,
+            bluetooth: bluetooth
         )
     }
 

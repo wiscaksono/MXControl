@@ -26,12 +26,19 @@ everything else is covered by `make verify`.
 - [ ] Thumb wheel invert and natural scrolling behave as labelled.
 - [ ] Keyboard backlight toggle and brightness change the keys.
 - [ ] Fn inversion flips the top row between media keys and F1–F12.
-- [ ] Press the mic mute key: the pill appears top-right, unmute hides it.
+- [ ] Enable "Mic Mute on F9" in the keyboard screen. Press F9: the pill
+      appears; press again: it hides and audio returns without touching the
+      system input volume slider.
+- [ ] While muted, move the input volume slider or mute via Control Center:
+      the pill reflects the real microphone state.
 - [ ] Scroll smoothing: wheel is smooth, Cmd+scroll still zooms.
 - [ ] Thumb button click opens Mission Control; hold+drag switches desktops.
 
 ## App behaviour
 
+- [ ] Relaunch with permissions already granted: scroll and F9 work without
+      opening the popover.
+- [ ] `make status` reports the same permission state as System Settings.
 - [ ] General → Menu Bar → Hide menu bar icon: the icon disappears.
 - [ ] Open MXControl again from Applications or Spotlight: the icon is back
       and the toggle is off.

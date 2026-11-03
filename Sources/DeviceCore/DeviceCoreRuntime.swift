@@ -21,7 +21,23 @@ public final class DeviceCoreRuntime {
     public func start() {
         applyBluetoothPreference()
         MicMuteEngine.shared.startDeviceMonitoring()
+
+        // External mute/volume changes (Control Center, the input slider, Teams)
+        // must update the pill, otherwise it can claim muted while the mic is live.
+        if micMuteObserver == nil {
+            micMuteObserver = NotificationCenter.default.addObserver(
+                forName: .micMuteStateChanged,
+                object: nil,
+                queue: .main
+            ) { _ in
+                Task { @MainActor in
+                    MicMuteUI.presenter?.reflect(muted: MicMuteEngine.shared.isMuted)
+                }
+            }
+        }
     }
+
+    private var micMuteObserver: NSObjectProtocol?
 
     private static let notificationsRequestedKey = "notificationsRequested"
 
@@ -79,7 +95,11 @@ public final class DeviceCoreRuntime {
             try? await Task.sleep(for: .milliseconds(150))
             if !manager.isScanning, !manager.devices.isEmpty { break }
         }
-        return snapshot()
+        let result = snapshot()
+        logger.info(
+            "[Runtime] Scan finished: \(result.devices.count) device(s) warning=\(result.warning ?? "none", privacy: .public)"
+        )
+        return result
     }
 
     public func snapshot() -> DeviceSnapshot {

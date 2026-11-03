@@ -7,7 +7,7 @@ SNAPSHOT_DIR := build/snapshots
 SIGNING_IDENTITY ?= $(shell security find-identity -v -p codesigning 2>/dev/null \
 	| sed -n 's/.*"\(Apple Development[^"]*\)"/\1/p' | head -1)
 
-.PHONY: build test lint format selfcheck snapshot screenshots bundle run stop dev verify release install dmg clean
+.PHONY: build test lint format selfcheck status snapshot screenshots bundle run stop dev verify release install dmg clean
 
 build:
 	swift build -c $(CONFIG)
@@ -24,6 +24,9 @@ format:
 
 selfcheck:
 	swift run -c $(CONFIG) $(APP_NAME) --self-check
+
+status: bundle
+	"$(APP)/Contents/MacOS/$(APP_NAME)" --status
 
 snapshot:
 	swift run -c $(CONFIG) Snapshot --out $(SNAPSHOT_DIR)

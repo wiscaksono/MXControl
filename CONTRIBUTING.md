@@ -12,6 +12,7 @@
 
 ```sh
 make verify      # build + tests + self-check + snapshots + lint; the gate
+make status      # headless permission/onboarding/settings JSON
 make build
 make test
 make snapshot    # write build/snapshots/*.png

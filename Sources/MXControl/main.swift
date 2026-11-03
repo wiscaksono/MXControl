@@ -2,6 +2,11 @@ import AppCore
 import AppKit
 
 // No `@main`: top-level code lets the headless path exit before AppKit starts.
+if CommandLine.arguments.contains("--status") {
+    StatusCheck.run()
+    exit(EXIT_SUCCESS)
+}
+
 if CommandLine.arguments.contains("--self-check") {
     SelfCheck.run()
     exit(EXIT_SUCCESS)
